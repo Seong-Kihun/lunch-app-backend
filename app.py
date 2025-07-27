@@ -2970,6 +2970,51 @@ def create_friend_chat():
         'room_id': chat_room.id
     }), 201
 
+@app.route('/chat/create', methods=['POST'])
+def create_chat_room():
+    """일반 채팅방 생성 API"""
+    data = request.get_json()
+    title = data.get('title')
+    creator_employee_id = data.get('creator_employee_id')
+    participant_employee_ids = data.get('participant_employee_ids', [])
+    
+    if not title or not creator_employee_id:
+        return jsonify({'message': '채팅방 제목과 생성자 ID가 필요합니다.'}), 400
+    
+    if not participant_employee_ids:
+        return jsonify({'message': '최소 한 명의 참여자가 필요합니다.'}), 400
+    
+    # 생성자도 참여자 목록에 추가
+    if creator_employee_id not in participant_employee_ids:
+        participant_employee_ids.append(creator_employee_id)
+    
+    try:
+        # 새 채팅방 생성
+        chat_room = ChatRoom(
+            name=title,
+            type='group'  # 일반 그룹 채팅방
+        )
+        db.session.add(chat_room)
+        db.session.flush()
+        
+        # 참여자들 추가
+        for user_id in participant_employee_ids:
+            participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
+            db.session.add(participant)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': '채팅방이 생성되었습니다.',
+            'chat_id': chat_room.id,
+            'title': chat_room.name
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating chat room: {e}")
+        return jsonify({'message': '채팅방 생성에 실패했습니다.'}), 500
+
 @app.route('/chats/filtered', methods=['GET'])
 def get_filtered_chats():
     employee_id = request.args.get('employee_id')
@@ -3819,9 +3864,26 @@ def create_voting_session():
             # 기본 가능한 날짜 계산
             available_dates, alternative_dates = find_available_dates_for_participants(participant_ids, max_days=30)
         
+        # 채팅방이 없는 경우 자동으로 생성
+        chat_room_id = data['chat_room_id']
+        if chat_room_id == -1:
+            # 새 채팅방 생성
+            chat_room = ChatRoom(
+                name=data['title'],
+                type='group'
+            )
+            db.session.add(chat_room)
+            db.session.flush()
+            chat_room_id = chat_room.id
+            
+            # 참여자들 추가
+            for user_id in participant_ids:
+                participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
+                db.session.add(participant)
+        
         # 새로운 투표 세션 생성
         voting_session = VotingSession(
-            chat_room_id=data['chat_room_id'],
+            chat_room_id=chat_room_id,
             title=data['title'],
             participants=json.dumps(participant_ids),
             created_by=data['created_by'],
@@ -3838,46 +3900,44 @@ def create_voting_session():
         db.session.add(voting_session)
         db.session.commit()
         
-        # 채팅방이 있는 경우에만 채팅방에 메시지 전송
-        if data['chat_room_id'] != -1:
-            # 채팅방에 투표 시작 시스템 메시지 추가
-            # 한국 시간으로 변환해서 표시
-            korean_expires_at = voting_session.expires_at + timedelta(hours=9)
-            system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
-            
-            chat_message = ChatMessage(
-                chat_type='party',
-                chat_id=data['chat_room_id'],
-                sender_employee_id='SYSTEM',
-                sender_nickname='시스템',
-                message=system_message
-            )
-            chat_message.created_at = datetime.now()  # 한국 시간으로 설정
-            db.session.add(chat_message)
-            
-            # WebSocket으로 실시간 알림
-            room = f"party_{data['chat_room_id']}"
-            
-            # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
-            socketio.emit('new_message', {
-                'id': chat_message.id,
-                'sender_employee_id': 'SYSTEM',
-                'sender_nickname': '시스템',
-                'message': system_message,
-                'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'message_type': 'voting_notification',
-                'voting_session_id': voting_session.id,
-                'chat_type': 'party',
-                'chat_id': data['chat_room_id']
-            }, room=room)
-            
-            # 투표 세션 알림
-            socketio.emit('new_voting_session', {
-                'session_id': voting_session.id,
-                'title': voting_session.title,
-                'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
-                'available_dates': available_dates
-            }, room=room)
+        # 채팅방에 투표 시작 시스템 메시지 추가
+        # 한국 시간으로 변환해서 표시
+        korean_expires_at = voting_session.expires_at + timedelta(hours=9)
+        system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
+        
+        chat_message = ChatMessage(
+            chat_type='party',
+            chat_id=chat_room_id,
+            sender_employee_id='SYSTEM',
+            sender_nickname='시스템',
+            message=system_message
+        )
+        chat_message.created_at = datetime.now()  # 한국 시간으로 설정
+        db.session.add(chat_message)
+        
+        # WebSocket으로 실시간 알림
+        room = f"party_{chat_room_id}"
+        
+        # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
+        socketio.emit('new_message', {
+            'id': chat_message.id,
+            'sender_employee_id': 'SYSTEM',
+            'sender_nickname': '시스템',
+            'message': system_message,
+            'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'message_type': 'voting_notification',
+            'voting_session_id': voting_session.id,
+            'chat_type': 'party',
+            'chat_id': chat_room_id
+        }, room=room)
+        
+        # 투표 세션 알림
+        socketio.emit('new_voting_session', {
+            'session_id': voting_session.id,
+            'title': voting_session.title,
+            'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
+            'available_dates': available_dates
+        }, room=room)
         
         # 참가자들에게 알림 생성 (투표 생성자도 포함) - 채팅방 여부와 상관없이 항상 생성
         active_participants = data.get('participants', [])
@@ -3898,7 +3958,8 @@ def create_voting_session():
             'title': voting_session.title,
             'available_dates': available_dates,
             'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
-            'status': voting_session.status
+            'status': voting_session.status,
+            'chat_room_id': chat_room_id  # 생성된 채팅방 ID 반환
         }), 201
         
     except Exception as e:
@@ -4158,41 +4219,39 @@ def vote_for_date(session_id):
                 weekday = datetime.strptime(winning_date, '%Y-%m-%d').weekday()
                 weekday_name = ['월', '화', '수', '목', '금', '토', '일'][weekday]
                 
-                # 채팅방이 있는 경우에만 채팅방에 메시지 전송
-                if session.chat_room_id != -1:
-                    # 채팅방에 투표 완료 시스템 메시지 추가
-                    completion_message = f"🎉 '{session.title}' 투표가 완료되었습니다!\n모든 참가자가 투표를 완료했습니다.\n\n✅ 확정 날짜: {winning_date} ({weekday_name})"
-                    if session.restaurant_name:
-                        completion_message += f"\n🍽️ 식당: {session.restaurant_name}"
-                    if session.meeting_time:
-                        completion_message += f"\n🕐 시간: {session.meeting_time}"
-                    if session.meeting_location:
-                        completion_message += f"\n📍 장소: {session.meeting_location}"
-                    completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
-                    
-                    chat_message = ChatMessage(
-                        chat_type='party',
-                        chat_id=session.chat_room_id,
-                        sender_employee_id='SYSTEM',
-                        sender_nickname='시스템',
-                        message=completion_message
-                    )
-                    chat_message.created_at = datetime.now()
-                    db.session.add(chat_message)
-                    
-                    # WebSocket으로 실시간 알림
-                    room = f"party_{session.chat_room_id}"
-                    socketio.emit('new_message', {
-                        'id': chat_message.id,
-                        'sender_employee_id': 'SYSTEM',
-                        'sender_nickname': '시스템',
-                        'message': completion_message,
-                        'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                        'message_type': 'voting_completed',
-                        'voting_session_id': session.id,
-                        'chat_type': 'party',
-                        'chat_id': session.chat_room_id
-                    }, room=room)
+                # 채팅방에 투표 완료 시스템 메시지 추가
+                completion_message = f"🎉 '{session.title}' 투표가 완료되었습니다!\n모든 참가자가 투표를 완료했습니다.\n\n✅ 확정 날짜: {winning_date} ({weekday_name})"
+                if session.restaurant_name:
+                    completion_message += f"\n🍽️ 식당: {session.restaurant_name}"
+                if session.meeting_time:
+                    completion_message += f"\n🕐 시간: {session.meeting_time}"
+                if session.meeting_location:
+                    completion_message += f"\n📍 장소: {session.meeting_location}"
+                completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
+                
+                chat_message = ChatMessage(
+                    chat_type='party',
+                    chat_id=session.chat_room_id,
+                    sender_employee_id='SYSTEM',
+                    sender_nickname='시스템',
+                    message=completion_message
+                )
+                chat_message.created_at = datetime.now()
+                db.session.add(chat_message)
+                
+                # WebSocket으로 실시간 알림
+                room = f"party_{session.chat_room_id}"
+                socketio.emit('new_message', {
+                    'id': chat_message.id,
+                    'sender_employee_id': 'SYSTEM',
+                    'sender_nickname': '시스템',
+                    'message': completion_message,
+                    'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'message_type': 'voting_completed',
+                    'voting_session_id': session.id,
+                    'chat_type': 'party',
+                    'chat_id': session.chat_room_id
+                }, room=room)
                 
                 db.session.commit()
                 
