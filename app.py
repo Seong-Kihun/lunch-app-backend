@@ -2399,6 +2399,8 @@ def send_chat_message():
     if not user:
         return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
     
+    print(f"=== DEBUG: 메시지 저장 - chat_type: {chat_type}, chat_id: {chat_id}, sender: {sender_employee_id}, message: {message[:50]}... ===")
+    
     # 메시지 저장
     new_message = ChatMessage()
     new_message.chat_type = chat_type
