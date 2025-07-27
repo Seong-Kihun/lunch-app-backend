@@ -1850,9 +1850,16 @@ def suggest_groups():
     # 점수순으로 정렬
     user_scores.sort(key=lambda x: x[1], reverse=True)
     
+    # 중복 제거를 위한 함수
+    def create_group_key(group_users):
+        """그룹의 고유 키를 생성하는 함수"""
+        user_ids = sorted([user.employee_id for user in group_users])
+        return ','.join(user_ids)
+    
     # 여러 그룹 생성 (최대 5개)
     groups = []
     used_users = set()
+    seen_groups = set()  # 중복 제거를 위한 set
     
     for group_idx in range(min(5, len(user_scores) // 3 + 1)):
         group_users = []
@@ -1874,17 +1881,23 @@ def suggest_groups():
                 used_users.add(user.employee_id)
         
         if group_users:
-            groups.append({
-                'group_id': group_idx + 1,
-                'users': [{
-                    'employee_id': user.employee_id,
-                    'nickname': user.nickname,
-                    'lunch_preference': user.lunch_preference,
-                    'main_dish_genre': user.main_dish_genre,
-                    'gender': user.gender,
-                    'age_group': user.age_group
-                } for user in group_users]
-            })
+            # 중복 제거를 위한 그룹 키 생성
+            group_key = create_group_key(group_users)
+            
+            # 중복되지 않은 그룹만 추가
+            if group_key not in seen_groups:
+                seen_groups.add(group_key)
+                groups.append({
+                    'group_id': len(groups) + 1,  # 중복 제거 후 실제 인덱스 사용
+                    'users': [{
+                        'employee_id': user.employee_id,
+                        'nickname': user.nickname,
+                        'lunch_preference': user.lunch_preference,
+                        'main_dish_genre': user.main_dish_genre,
+                        'gender': user.gender,
+                        'age_group': user.age_group
+                    } for user in group_users]
+                })
     
     return jsonify(groups)
 
