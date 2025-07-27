@@ -2118,6 +2118,8 @@ def cancel_proposal(proposal_id):
 def get_my_chats(employee_id):
     chat_list = []
     
+    print(f"=== DEBUG: 채팅방 목록 조회 시작 (사용자: {employee_id}) ===")
+    
     # 파티 채팅방들
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
     for party in joined_parties:
@@ -2130,20 +2132,28 @@ def get_my_chats(employee_id):
     
     # 일반 채팅방들 (투표로 생성된 채팅방 포함)
     user_participations = ChatParticipant.query.filter_by(user_id=employee_id).all()
+    print(f"=== DEBUG: 사용자 참여 채팅방 수: {len(user_participations)} ===")
+    
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
+        print(f"=== DEBUG: 채팅방 ID {participation.room_id} - 타입: {chat_room.type if chat_room else 'None'} - 이름: {chat_room.name if chat_room else 'None'} ===")
+        
         if chat_room and chat_room.type in ['group', 'friend']:
-            # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='party' 사용)
+            # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='custom' 사용)
             last_message = ChatMessage.query.filter_by(
-                chat_type='party', 
+                chat_type='custom', 
                 chat_id=chat_room.id
             ).order_by(desc(ChatMessage.created_at)).first()
+            
+            print(f"=== DEBUG: chat_type='custom'으로 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
             
             # 마지막 메시지가 없으면 다른 chat_type으로도 시도
             if not last_message:
                 last_message = ChatMessage.query.filter_by(
                     chat_id=chat_room.id
                 ).order_by(desc(ChatMessage.created_at)).first()
+                
+                print(f"=== DEBUG: chat_id로만 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
             
             chat_list.append({
                 'id': chat_room.id, 
@@ -2153,6 +2163,7 @@ def get_my_chats(employee_id):
                 'last_message': last_message.message if last_message else None
             })
     
+    print(f"=== DEBUG: 최종 채팅방 목록: {chat_list} ===")
     return jsonify(chat_list)
 
 @app.route('/users/<employee_id>', methods=['GET'])
@@ -2233,7 +2244,13 @@ def get_user_preferences(employee_id):
 # --- 채팅 API ---
 @app.route('/chat/messages/<chat_type>/<int:chat_id>', methods=['GET'])
 def get_chat_messages(chat_type, chat_id):
+    print(f"=== DEBUG: 채팅 메시지 조회 - chat_type: {chat_type}, chat_id: {chat_id} ===")
+    
     messages = ChatMessage.query.filter_by(chat_type=chat_type, chat_id=chat_id).order_by(ChatMessage.created_at).all()
+    print(f"=== DEBUG: 조회된 메시지 수: {len(messages)} ===")
+    
+    for msg in messages:
+        print(f"=== DEBUG: 메시지 - ID: {msg.id}, 발신자: {msg.sender_nickname}, 내용: {msg.message[:50]}... ===")
 
     # 채팅방 참여자 목록 구하기
     if chat_type == 'party':
@@ -2249,8 +2266,8 @@ def get_chat_messages(chat_type, chat_id):
         else:
             member_ids = []
     elif chat_type == 'custom':
-        # custom(1:1) 채팅은 ChatRoom/ChatParticipant에서 조회
-        room = ChatRoom.query.filter_by(type='friend', id=chat_id).first()
+        # custom 채팅은 ChatRoom/ChatParticipant에서 조회 (투표로 생성된 채팅방 포함)
+        room = ChatRoom.query.get(chat_id)
         if room:
             participants = ChatParticipant.query.filter_by(room_id=room.id).all()
             member_ids = [p.user_id for p in participants]
@@ -3932,6 +3949,8 @@ def create_voting_session():
         
         # 채팅방이 없는 경우 자동으로 생성
         chat_room_id = data['chat_room_id']
+        print(f"=== DEBUG: 투표 세션 생성 - chat_room_id: {chat_room_id} ===")
+        
         if chat_room_id == -1:
             # 새 채팅방 생성
             chat_room = ChatRoom(
@@ -3942,10 +3961,13 @@ def create_voting_session():
             db.session.flush()
             chat_room_id = chat_room.id
             
+            print(f"=== DEBUG: 새 채팅방 생성 - ID: {chat_room_id}, 이름: {data['title']}, 타입: group ===")
+            
             # 참여자들 추가
             for user_id in participant_ids:
                 participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
                 db.session.add(participant)
+                print(f"=== DEBUG: 참여자 추가 - user_id: {user_id} ===")
         
         # 새로운 투표 세션 생성
         voting_session = VotingSession(
@@ -3971,8 +3993,10 @@ def create_voting_session():
         korean_expires_at = voting_session.expires_at + timedelta(hours=9)
         system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
         
+        print(f"=== DEBUG: 투표 메시지 생성 - chat_type: custom, chat_id: {chat_room_id} ===")
+        
         chat_message = ChatMessage(
-            chat_type='party',
+            chat_type='custom',
             chat_id=chat_room_id,
             sender_employee_id='SYSTEM',
             sender_nickname='시스템',
@@ -3981,8 +4005,10 @@ def create_voting_session():
         chat_message.created_at = datetime.now()  # 한국 시간으로 설정
         db.session.add(chat_message)
         
+        print(f"=== DEBUG: 투표 메시지 내용: {system_message[:100]}... ===")
+        
         # WebSocket으로 실시간 알림
-        room = f"party_{chat_room_id}"
+        room = f"custom_{chat_room_id}"
         
         # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
         socketio.emit('new_message', {
@@ -3993,7 +4019,7 @@ def create_voting_session():
             'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             'message_type': 'voting_notification',
             'voting_session_id': voting_session.id,
-            'chat_type': 'party',
+            'chat_type': 'custom',
             'chat_id': chat_room_id
         }, room=room)
         
@@ -4077,7 +4103,7 @@ def get_voting_session(session_id):
                     completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
                     
                     chat_message = ChatMessage(
-                        chat_type='party',
+                        chat_type='custom',
                         chat_id=session.chat_room_id,
                         sender_employee_id='SYSTEM',
                         sender_nickname='시스템',
@@ -4087,7 +4113,7 @@ def get_voting_session(session_id):
                     db.session.add(chat_message)
                     
                     # WebSocket으로 실시간 알림
-                    room = f"party_{session.chat_room_id}"
+                    room = f"custom_{session.chat_room_id}"
                     socketio.emit('new_message', {
                         'id': chat_message.id,
                         'sender_employee_id': 'SYSTEM',
@@ -4096,7 +4122,7 @@ def get_voting_session(session_id):
                         'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                         'message_type': 'voting_completed',
                         'voting_session_id': session.id,
-                        'chat_type': 'party',
+                        'chat_type': 'custom',
                         'chat_id': session.chat_room_id
                     }, room=room)
                 
@@ -4249,7 +4275,7 @@ def vote_for_date(session_id):
         
         # WebSocket으로 실시간 업데이트 (채팅방이 있는 경우에만)
         if session.chat_room_id != -1:
-            room = f"party_{session.chat_room_id}"
+            room = f"custom_{session.chat_room_id}"
             socketio.emit('vote_updated', {
                 'session_id': session_id,
                 'voter_id': voter_id,
@@ -4296,7 +4322,7 @@ def vote_for_date(session_id):
                 completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
                 
                 chat_message = ChatMessage(
-                    chat_type='party',
+                    chat_type='custom',
                     chat_id=session.chat_room_id,
                     sender_employee_id='SYSTEM',
                     sender_nickname='시스템',
@@ -4306,7 +4332,7 @@ def vote_for_date(session_id):
                 db.session.add(chat_message)
                 
                 # WebSocket으로 실시간 알림
-                room = f"party_{session.chat_room_id}"
+                room = f"custom_{session.chat_room_id}"
                 socketio.emit('new_message', {
                     'id': chat_message.id,
                     'sender_employee_id': 'SYSTEM',
@@ -4315,7 +4341,7 @@ def vote_for_date(session_id):
                     'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                     'message_type': 'voting_completed',
                     'voting_session_id': session.id,
-                    'chat_type': 'party',
+                    'chat_type': 'custom',
                     'chat_id': session.chat_room_id
                 }, room=room)
                 
@@ -4660,7 +4686,7 @@ def auto_create_party_from_voting(session):
         
         # WebSocket으로 파티 생성 알림 (채팅방이 있는 경우에만)
         if session.chat_room_id != -1:
-            room = f"party_{session.chat_room_id}"
+            room = f"custom_{session.chat_room_id}"
             socketio.emit('party_created_from_voting', {
                 'party_id': new_party.id,
                 'title': new_party.title,
