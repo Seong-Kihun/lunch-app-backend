@@ -2123,7 +2123,16 @@ def get_my_chats(employee_id):
     # 파티 채팅방들
     party_chat_list = []
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
+    
+    # 중복 제거를 위한 set
+    seen_party_ids = set()
+    
     for party in joined_parties:
+        # 중복 체크
+        if party.id in seen_party_ids:
+            continue
+        seen_party_ids.add(party.id)
+        
         # 파티의 마지막 메시지 가져오기
         last_message = ChatMessage.query.filter_by(
             chat_type='party',
@@ -2151,7 +2160,16 @@ def get_my_chats(employee_id):
     # 단골파티 채팅방들
     pot_chat_list = []
     joined_pots = DangolPot.query.filter(DangolPot.members.contains(employee_id)).order_by(desc(DangolPot.created_at)).all()  # type: ignore
+    
+    # 중복 제거를 위한 set
+    seen_pot_ids = set()
+    
     for pot in joined_pots:
+        # 중복 체크
+        if pot.id in seen_pot_ids:
+            continue
+        seen_pot_ids.add(pot.id)
+        
         # 단골파티의 마지막 메시지 가져오기
         last_message = ChatMessage.query.filter_by(
             chat_type='dangolpot',
@@ -2181,9 +2199,18 @@ def get_my_chats(employee_id):
     
     custom_chat_list = []
     
+    # 중복 제거를 위한 set
+    seen_chat_room_ids = set()
+    
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
         print(f"=== DEBUG: 채팅방 ID {participation.room_id} - 타입: {chat_room.type if chat_room else 'None'} - 이름: {chat_room.name if chat_room else 'None'} ===")
+        
+        # 중복 체크
+        if chat_room and chat_room.id in seen_chat_room_ids:
+            continue
+        if chat_room:
+            seen_chat_room_ids.add(chat_room.id)
         
         if chat_room and chat_room.type in ['group', 'friend']:
             # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='custom' 사용)
@@ -4789,3 +4816,4 @@ def auto_create_party_from_voting(session):
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+
