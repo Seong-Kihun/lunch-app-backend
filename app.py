@@ -2117,12 +2117,36 @@ def cancel_proposal(proposal_id):
 @app.route('/chats/<employee_id>', methods=['GET'])
 def get_my_chats(employee_id):
     chat_list = []
+    
+    # 파티 채팅방들
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
     for party in joined_parties:
         chat_list.append({'id': party.id, 'type': 'party', 'title': party.title, 'subtitle': f"{party.restaurant_name} | {party.current_members}/{party.max_members}명", 'is_from_match': party.is_from_match})
+    
+    # 단골파티 채팅방들
     joined_pots = DangolPot.query.filter(DangolPot.members.contains(employee_id)).order_by(desc(DangolPot.created_at)).all()  # type: ignore
     for pot in joined_pots:
          chat_list.append({'id': pot.id, 'type': 'dangolpot', 'title': pot.name, 'subtitle': pot.tags})
+    
+    # 일반 채팅방들 (투표로 생성된 채팅방 포함)
+    user_participations = ChatParticipant.query.filter_by(user_id=employee_id).all()
+    for participation in user_participations:
+        chat_room = ChatRoom.query.get(participation.room_id)
+        if chat_room and chat_room.type in ['group', 'friend']:
+            # 마지막 메시지 가져오기
+            last_message = ChatMessage.query.filter_by(
+                chat_type='party', 
+                chat_id=chat_room.id
+            ).order_by(desc(ChatMessage.created_at)).first()
+            
+            chat_list.append({
+                'id': chat_room.id, 
+                'type': 'custom', 
+                'title': chat_room.name or '새로운 채팅방',
+                'subtitle': last_message.message if last_message else '새로운 채팅방입니다',
+                'last_message': last_message.message if last_message else None
+            })
+    
     return jsonify(chat_list)
 
 @app.route('/users/<employee_id>', methods=['GET'])
