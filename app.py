@@ -2130,13 +2130,22 @@ def get_my_chats(employee_id):
             chat_id=party.id
         ).order_by(desc(ChatMessage.created_at)).first()
         
+        # 최근 메시지 미리보기 (최대 15글자)
+        if last_message:
+            message_preview = last_message.message
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+        else:
+            message_preview = f"{party.restaurant_name} | {party.current_members}/{party.max_members}명"
+        
         party_chat_list.append({
             'id': party.id, 
             'type': 'party', 
             'title': party.title, 
-            'subtitle': f"{party.restaurant_name} | {party.current_members}/{party.max_members}명", 
+            'subtitle': message_preview,
             'is_from_match': party.is_from_match,
-            'last_message_time': last_message.created_at if last_message else None
+            'last_message_time': last_message.created_at if last_message else None,
+            'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
         })
     
     # 단골파티 채팅방들
@@ -2149,12 +2158,21 @@ def get_my_chats(employee_id):
             chat_id=pot.id
         ).order_by(desc(ChatMessage.created_at)).first()
         
+        # 최근 메시지 미리보기 (최대 15글자)
+        if last_message:
+            message_preview = last_message.message
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+        else:
+            message_preview = pot.tags
+        
         pot_chat_list.append({
             'id': pot.id, 
             'type': 'dangolpot', 
             'title': pot.name, 
-            'subtitle': pot.tags,
-            'last_message_time': last_message.created_at if last_message else None
+            'subtitle': message_preview,
+            'last_message_time': last_message.created_at if last_message else None,
+            'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
         })
     
     # 일반 채팅방들 (투표로 생성된 채팅방 포함)
@@ -2184,13 +2202,19 @@ def get_my_chats(employee_id):
                 
                 print(f"=== DEBUG: chat_id로만 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
             
+            # 최근 메시지 미리보기 (최대 15글자)
+            message_preview = last_message.message if last_message else '새로운 채팅방입니다'
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+            
             custom_chat_list.append({
                 'id': chat_room.id, 
                 'type': 'custom', 
                 'title': chat_room.name or '새로운 채팅방',
-                'subtitle': last_message.message if last_message else '새로운 채팅방입니다',
+                'subtitle': message_preview,
                 'last_message': last_message.message if last_message else None,
-                'last_message_time': last_message.created_at if last_message else None
+                'last_message_time': last_message.created_at if last_message else None,
+                'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
             })
     
     # 마지막 메시지 시간 기준으로 정렬 (최신 메시지가 있는 채팅방이 위로)
