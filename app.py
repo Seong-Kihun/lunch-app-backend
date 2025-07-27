@@ -2399,11 +2399,20 @@ def send_chat_message():
     if not user:
         return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
     
-    print(f"=== DEBUG: 메시지 저장 - chat_type: {chat_type}, chat_id: {chat_id}, sender: {sender_employee_id}, message: {message[:50]}... ===")
+    # 투표로 생성된 채팅방인지 확인 (ChatRoom이 group 타입이고 해당 chat_id를 가진 경우)
+    chat_room = ChatRoom.query.get(chat_id)
+    if chat_room and chat_room.type == 'group':
+        # 투표로 생성된 채팅방의 경우 chat_type을 'custom'으로 강제 설정
+        actual_chat_type = 'custom'
+        print(f"=== DEBUG: 투표로 생성된 채팅방 감지 - chat_id: {chat_id}, 강제 chat_type: custom ===")
+    else:
+        actual_chat_type = chat_type
+    
+    print(f"=== DEBUG: 메시지 저장 - 원본 chat_type: {chat_type}, 실제 chat_type: {actual_chat_type}, chat_id: {chat_id}, sender: {sender_employee_id}, message: {message[:50]}... ===")
     
     # 메시지 저장
     new_message = ChatMessage()
-    new_message.chat_type = chat_type
+    new_message.chat_type = actual_chat_type
     new_message.chat_id = chat_id
     new_message.sender_employee_id = sender_employee_id
     new_message.sender_nickname = user.nickname
@@ -2418,7 +2427,9 @@ def send_chat_message():
             'sender_employee_id': sender_employee_id,
             'sender_nickname': user.nickname,
             'message': message,
-            'created_at': format_korean_time(new_message.created_at)
+            'created_at': format_korean_time(new_message.created_at),
+            'chat_type': actual_chat_type,
+            'chat_id': chat_id
         }), 201
     except Exception as e:
         db.session.rollback()
