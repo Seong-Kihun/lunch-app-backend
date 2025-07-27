@@ -2121,18 +2121,47 @@ def get_my_chats(employee_id):
     print(f"=== DEBUG: 채팅방 목록 조회 시작 (사용자: {employee_id}) ===")
     
     # 파티 채팅방들
+    party_chat_list = []
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
     for party in joined_parties:
-        chat_list.append({'id': party.id, 'type': 'party', 'title': party.title, 'subtitle': f"{party.restaurant_name} | {party.current_members}/{party.max_members}명", 'is_from_match': party.is_from_match})
+        # 파티의 마지막 메시지 가져오기
+        last_message = ChatMessage.query.filter_by(
+            chat_type='party',
+            chat_id=party.id
+        ).order_by(desc(ChatMessage.created_at)).first()
+        
+        party_chat_list.append({
+            'id': party.id, 
+            'type': 'party', 
+            'title': party.title, 
+            'subtitle': f"{party.restaurant_name} | {party.current_members}/{party.max_members}명", 
+            'is_from_match': party.is_from_match,
+            'last_message_time': last_message.created_at if last_message else None
+        })
     
     # 단골파티 채팅방들
+    pot_chat_list = []
     joined_pots = DangolPot.query.filter(DangolPot.members.contains(employee_id)).order_by(desc(DangolPot.created_at)).all()  # type: ignore
     for pot in joined_pots:
-         chat_list.append({'id': pot.id, 'type': 'dangolpot', 'title': pot.name, 'subtitle': pot.tags})
+        # 단골파티의 마지막 메시지 가져오기
+        last_message = ChatMessage.query.filter_by(
+            chat_type='dangolpot',
+            chat_id=pot.id
+        ).order_by(desc(ChatMessage.created_at)).first()
+        
+        pot_chat_list.append({
+            'id': pot.id, 
+            'type': 'dangolpot', 
+            'title': pot.name, 
+            'subtitle': pot.tags,
+            'last_message_time': last_message.created_at if last_message else None
+        })
     
     # 일반 채팅방들 (투표로 생성된 채팅방 포함)
     user_participations = ChatParticipant.query.filter_by(user_id=employee_id).all()
     print(f"=== DEBUG: 사용자 참여 채팅방 수: {len(user_participations)} ===")
+    
+    custom_chat_list = []
     
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
@@ -2155,13 +2184,34 @@ def get_my_chats(employee_id):
                 
                 print(f"=== DEBUG: chat_id로만 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
             
-            chat_list.append({
+            custom_chat_list.append({
                 'id': chat_room.id, 
                 'type': 'custom', 
                 'title': chat_room.name or '새로운 채팅방',
                 'subtitle': last_message.message if last_message else '새로운 채팅방입니다',
-                'last_message': last_message.message if last_message else None
+                'last_message': last_message.message if last_message else None,
+                'last_message_time': last_message.created_at if last_message else None
             })
+    
+    # 마지막 메시지 시간 기준으로 정렬 (최신 메시지가 있는 채팅방이 위로)
+    custom_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 파티 채팅방들도 마지막 메시지 시간 기준으로 정렬
+    party_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 단골파티 채팅방들도 마지막 메시지 시간 기준으로 정렬
+    pot_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 모든 채팅방을 하나의 리스트로 합치고 마지막 메시지 시간 기준으로 정렬
+    all_chats = party_chat_list + pot_chat_list + custom_chat_list
+    all_chats.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # last_message_time 필드 제거 (프론트엔드에서 사용하지 않음)
+    for chat in all_chats:
+        if 'last_message_time' in chat:
+            del chat['last_message_time']
+    
+    chat_list = all_chats
     
     print(f"=== DEBUG: 최종 채팅방 목록: {chat_list} ===")
     return jsonify(chat_list)
