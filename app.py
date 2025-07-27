@@ -2154,7 +2154,7 @@ def get_my_chats(employee_id):
             'subtitle': message_preview,
             'is_from_match': party.is_from_match,
             'last_message_time': last_message.created_at if last_message else None,
-            'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
+            'unread_count': 3 if party.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
         })
     
     # 단골파티 채팅방들
@@ -2190,7 +2190,7 @@ def get_my_chats(employee_id):
             'title': pot.name, 
             'subtitle': message_preview,
             'last_message_time': last_message.created_at if last_message else None,
-            'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
+            'unread_count': 5 if pot.id % 3 == 0 else 0  # 테스트용 안읽은 메시지 수
         })
     
     # 일반 채팅방들 (투표로 생성된 채팅방 포함)
@@ -2241,7 +2241,7 @@ def get_my_chats(employee_id):
                 'subtitle': message_preview,
                 'last_message': last_message.message if last_message else None,
                 'last_message_time': last_message.created_at if last_message else None,
-                'unread_count': 0  # 안읽은 메시지 수 (추후 구현)
+                'unread_count': 2 if chat_room.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
             })
     
     # 마지막 메시지 시간 기준으로 정렬 (최신 메시지가 있는 채팅방이 위로)
@@ -2257,10 +2257,11 @@ def get_my_chats(employee_id):
     all_chats = party_chat_list + pot_chat_list + custom_chat_list
     all_chats.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
     
-    # last_message_time 필드 제거 (프론트엔드에서 사용하지 않음)
-    for chat in all_chats:
-        if 'last_message_time' in chat:
-            del chat['last_message_time']
+    # last_message_time 필드 제거하지 않음 (프론트엔드에서 사용)
+    # 디버깅을 위한 로그 추가
+    print(f"=== DEBUG: 최종 채팅방 목록 ===")
+    for i, chat in enumerate(all_chats):
+        print(f"채팅방 {i+1}: {chat['title']} - last_message_time: {chat.get('last_message_time')} - unread_count: {chat.get('unread_count')}")
     
     chat_list = all_chats
     
@@ -4816,4 +4817,3 @@ def auto_create_party_from_voting(session):
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
-
