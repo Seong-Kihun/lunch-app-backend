@@ -2133,11 +2133,17 @@ def get_my_chats(employee_id):
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
         if chat_room and chat_room.type in ['group', 'friend']:
-            # 마지막 메시지 가져오기
+            # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='party' 사용)
             last_message = ChatMessage.query.filter_by(
                 chat_type='party', 
                 chat_id=chat_room.id
             ).order_by(desc(ChatMessage.created_at)).first()
+            
+            # 마지막 메시지가 없으면 다른 chat_type으로도 시도
+            if not last_message:
+                last_message = ChatMessage.query.filter_by(
+                    chat_id=chat_room.id
+                ).order_by(desc(ChatMessage.created_at)).first()
             
             chat_list.append({
                 'id': chat_room.id, 
