@@ -764,23 +764,46 @@ def get_reviews(restaurant_id):
 @app.route('/restaurants/<int:restaurant_id>/reviews', methods=['POST'])
 def add_review(restaurant_id):
     data = request.get_json() or {}
-    user = User.query.filter_by(employee_id=data.get('user_id')).first()
-    if not user:
-        return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+    restaurant = Restaurant.query.get(restaurant_id)
+    if not restaurant: return jsonify({'message': '맛집을 찾을 수 없습니다.'}), 404
     
-    # Review 생성 (사진, 태그 포함)
     new_review = Review(
         restaurant_id=restaurant_id,
         user_id=data.get('user_id'),
-        nickname=user.nickname,
+        nickname=data.get('nickname'),
         rating=data.get('rating'),
         comment=data.get('comment'),
         photo_url=data.get('photo_url'),
-        tags=','.join(data.get('tags', [])) if data.get('tags') else None
+        tags=data.get('tags')
     )
     db.session.add(new_review)
     db.session.commit()
-    return jsonify({'message': '리뷰가 성공적으로 등록되었습니다.'}), 201
+    return jsonify({'message': '리뷰가 추가되었습니다.', 'id': new_review.id}), 201
+
+@app.route('/restaurants/search', methods=['GET'])
+def search_restaurants():
+    """식당 검색 API - 드롭다운용"""
+    query = request.args.get('query', '')
+    limit = request.args.get('limit', 10, type=int)
+    
+    if not query:
+        return jsonify([])
+    
+    # 검색 쿼리
+    restaurants_query = Restaurant.query.filter(Restaurant.name.contains(query))  # type: ignore
+    restaurants = restaurants_query.limit(limit).all()
+    
+    # 간단한 정보만 반환
+    restaurants_data = []
+    for restaurant in restaurants:
+        restaurants_data.append({
+            'id': restaurant.id,
+            'name': restaurant.name,
+            'category': restaurant.category,
+            'address': restaurant.address
+        })
+    
+    return jsonify(restaurants_data)
 
 @app.route('/reviews/<int:review_id>/like', methods=['POST'])
 def like_review(review_id):
