@@ -1814,6 +1814,81 @@ def get_available_dates():
     
     return jsonify(available_dates)
 
+@app.route('/proposals/date-recommendations', methods=['GET'])
+def get_date_recommendations():
+    """특정 날짜의 추천 그룹을 가져오는 API"""
+    employee_id = request.args.get('employee_id')
+    selected_date = request.args.get('date')
+    
+    if not employee_id or not selected_date:
+        return jsonify({'error': 'employee_id and date are required'}), 400
+
+    try:
+        # 해당 날짜에 사용 가능한 사용자들 찾기
+        available_users = db.session.query(User).filter(
+            and_(
+                getattr(User, 'employee_id') != employee_id,
+                ~db.session.query(Party).filter(
+                    and_(
+                        getattr(Party, 'party_date') == selected_date,
+                        or_(
+                            getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
+                            getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id'))
+                        )
+                    )
+                ).exists(),
+                ~db.session.query(PersonalSchedule).filter(
+                    and_(
+                        getattr(PersonalSchedule, 'schedule_date') == selected_date,
+                        getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
+                    )
+                ).exists()
+            )
+        ).all()
+
+        requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
+        if not requester:
+            return jsonify([])
+
+        # 호환성 점수 계산 및 그룹 생성
+        scored_users = []
+        for user in available_users:
+            preference_score = calculate_compatibility_score(requester, user)
+            pattern_score = calculate_pattern_score(requester, user)
+            random_score = random.random()
+            total_score = preference_score * 0.6 + pattern_score * 0.3 + random_score * 0.1
+            scored_users.append((user, total_score))
+        
+        scored_users.sort(key=lambda x: x[1], reverse=True)
+        
+        # 그룹 생성 (3명씩)
+        recommendations = []
+        for i in range(0, len(scored_users), 3):
+            if i + 3 <= len(scored_users):
+                group_members = []
+                for user, score in scored_users[i:i+3]:
+                    group_members.append({
+                        "nickname": user.nickname,
+                        "lunch_preference": user.lunch_preference,
+                        "employee_id": user.employee_id,
+                        "compatibility_score": round(score, 2)
+                    })
+                
+                if group_members:
+                    recommendations.append({
+                        "proposed_date": selected_date,
+                        "recommended_group": group_members
+                    })
+        
+        # 최대 10개 그룹으로 제한
+        recommendations = recommendations[:10]
+        
+        return jsonify(recommendations)
+        
+    except Exception as e:
+        print(f"Error getting date recommendations: {e}")
+        return jsonify({'error': 'Failed to get date recommendations'}), 500
+
 @app.route('/proposals/suggest-groups', methods=['POST'])
 def suggest_groups():
     data = request.get_json() or {}
@@ -3796,6 +3871,8 @@ def calculate_pattern_score(requester, user):
 def get_smart_recommendations():
     global SMART_LUNCH_CACHE, SMART_LUNCH_CACHE_DATE
     employee_id = request.args.get('employee_id')
+    selected_date = request.args.get('date')  # 새로운 파라미터
+    
     if not employee_id:
         return jsonify({'error': 'employee_id is required'}), 400
 
@@ -3806,10 +3883,17 @@ def get_smart_recommendations():
         SMART_LUNCH_CACHE = {}
         SMART_LUNCH_CACHE_DATE = today_str
 
+    # 캐시에서 데이터 가져오기
     if employee_id in SMART_LUNCH_CACHE:
         groups = SMART_LUNCH_CACHE[employee_id]
-        random.shuffle(groups)
-        return jsonify(groups)
+        if selected_date:
+            # 특정 날짜 필터링
+            filtered_groups = [group for group in groups if group.get('proposed_date') == selected_date]
+            return jsonify(filtered_groups)
+        else:
+            # 모든 그룹 반환 (기존 동작)
+            random.shuffle(groups)
+            return jsonify(groups)
 
     try:
         today = get_seoul_today()
