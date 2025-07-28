@@ -3964,8 +3964,8 @@ def get_smart_recommendations():
             member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
             return f"{date}_{','.join(member_ids)}"
 
-        # 1~3일차 그룹 생성
-        for i, group_count in enumerate(date_group_counts[:3]):
+        # 모든 날짜에 대해 그룹 생성
+        for i, group_count in enumerate(date_group_counts):
             if i >= len(empty_dates):
                 break
             selected_date = empty_dates[i]
@@ -4014,60 +4014,7 @@ def get_smart_recommendations():
                         "proposed_date": selected_date,
                         "recommended_group": group_members
                     })
-        # 나머지 날짜 그룹 (랜덤 샘플)
-        if len(date_group_counts) > 3 and len(empty_dates) > 3:
-            rest_count = date_group_counts[3]
-            rest_dates = empty_dates[3:]
-            rest_groups = []
-            for selected_date in rest_dates:
-                available_users = db.session.query(User).filter(
-                    and_(
-                        getattr(User, 'employee_id') != employee_id,
-                        ~db.session.query(Party).filter(
-                            and_(
-                                getattr(Party, 'party_date') == selected_date,
-                                or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
-                                    getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
-                            )
-                        ).exists(),
-                        ~db.session.query(PersonalSchedule).filter(
-                            and_(
-                                getattr(PersonalSchedule, 'schedule_date') == selected_date,
-                                getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
-                            )
-                        ).exists()
-                    )
-                ).all()
-                scored_users = []
-                for user in available_users:
-                    preference_score = calculate_compatibility_score(requester, user)
-                    pattern_score = calculate_pattern_score(requester, user)
-                    random_score = random.random()
-                    total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
-                    scored_users.append((user, total_score))
-                random.shuffle(scored_users)
-                for group_idx in range(len(scored_users)//3):
-                    start_idx = group_idx*3
-                    end_idx = start_idx+3
-                    if end_idx > len(scored_users):
-                        break
-                    selected_group = scored_users[start_idx:end_idx]
-                    group_members = []
-                    for user, score in selected_group:
-                        group_members.append({
-                            "nickname": user.nickname,
-                            "lunch_preference": user.lunch_preference,
-                            "employee_id": user.employee_id,
-                            "dining_history": get_dining_history(user, selected_date)
-                        })
-                    if group_members:
-                        rest_groups.append({
-                            "proposed_date": selected_date,
-                            "recommended_group": group_members
-                        })
-            if len(rest_groups) > rest_count:
-                rest_groups = random.sample(rest_groups, rest_count)
-            all_recommendations.extend(rest_groups)
+
         
         # 중복 제거 로직 추가
         seen_groups = set()
