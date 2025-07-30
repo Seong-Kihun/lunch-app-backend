@@ -1861,17 +1861,21 @@ def get_date_recommendations():
         
         scored_users.sort(key=lambda x: x[1], reverse=True)
         
-        # 그룹 생성 (3명씩)
+        # 그룹 생성 (3명씩) - 더 많은 그룹 생성
         recommendations = []
         for i in range(0, len(scored_users), 3):
             if i + 3 <= len(scored_users):
                 group_members = []
                 for user, score in scored_users[i:i+3]:
+                    # 마지막으로 함께 점심 먹은 시간 계산
+                    last_dining = get_last_dining_together(employee_id, user.employee_id)
+                    
                     group_members.append({
                         "nickname": user.nickname,
                         "lunch_preference": user.lunch_preference,
                         "employee_id": user.employee_id,
-                        "compatibility_score": round(score, 2)
+                        "compatibility_score": round(score, 2),
+                        "last_dining_together": last_dining
                     })
                 
                 if group_members:
@@ -1880,8 +1884,8 @@ def get_date_recommendations():
                         "recommended_group": group_members
                     })
         
-        # 최대 10개 그룹으로 제한
-        recommendations = recommendations[:10]
+        # 최대 20개 그룹으로 증가 (기존 10개에서)
+        recommendations = recommendations[:20]
         
         return jsonify(recommendations)
         
@@ -2009,8 +2013,11 @@ def create_proposal():
     if not proposer_id or not recipient_ids or not proposed_date:
         return jsonify({'message': 'proposer_id, recipient_ids, proposed_date가 필요합니다.'}), 400
     
-    # recipient_ids를 쉼표로 구분된 문자열로 변환
-    recipient_ids_str = ','.join(recipient_ids)
+    # recipient_ids가 리스트인지 확인하고 문자열로 변환
+    if isinstance(recipient_ids, list):
+        recipient_ids_str = ','.join(recipient_ids)
+    else:
+        recipient_ids_str = str(recipient_ids)
     
     new_proposal = LunchProposal(
         proposer_id=proposer_id,
@@ -3853,6 +3860,52 @@ SMART_LUNCH_CACHE_DATE = None
 
 # 패턴 점수 계산 예시 함수
 # (실제 서비스에서는 더 정교하게 구현 가능)
+def get_last_dining_together(user1_id, user2_id):
+    """두 사용자가 마지막으로 함께 점심을 먹은 시간을 계산하는 함수"""
+    try:
+        # 두 사용자가 함께 참여한 파티 중 가장 최근 것을 찾기
+        latest_party = db.session.query(Party).filter(
+            and_(
+                or_(
+                    and_(
+                        getattr(Party, 'host_employee_id') == user1_id,
+                        getattr(Party, 'members_employee_ids').contains(user2_id)
+                    ),
+                    and_(
+                        getattr(Party, 'host_employee_id') == user2_id,
+                        getattr(Party, 'members_employee_ids').contains(user1_id)
+                    )
+                ),
+                getattr(Party, 'party_date') < get_seoul_today().strftime('%Y-%m-%d')
+            )
+        ).order_by(desc(Party.party_date)).first()
+        
+        if latest_party:
+            party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d')
+            today = get_seoul_today()
+            days_diff = (today - party_date).days
+            
+            if days_diff == 0:
+                return "오늘"
+            elif days_diff == 1:
+                return "어제"
+            elif days_diff < 7:
+                return f"{days_diff}일 전"
+            elif days_diff < 30:
+                weeks = days_diff // 7
+                return f"{weeks}주 전"
+            elif days_diff < 365:
+                months = days_diff // 30
+                return f"{months}개월 전"
+            else:
+                years = days_diff // 365
+                return f"{years}년 전"
+        else:
+            return "처음 만나는 동료"
+    except Exception as e:
+        print(f"Error calculating last dining together: {e}")
+        return "알 수 없음"
+
 def calculate_pattern_score(requester, user):
     score = 0.0
     # 점심 시간대 선호 일치
@@ -3919,7 +3972,7 @@ def get_smart_recommendations():
             if not has_party and not has_personal:
                 empty_dates.append(date_string)
 
-        total_groups = 100
+        total_groups = 200  # 실제 배포 시 더 많은 그룹 생성
         date_group_counts = []
         if len(empty_dates) >= 3:
             date_group_counts = [int(total_groups*0.85), int(total_groups*0.1), int(total_groups*0.03)]
@@ -4003,11 +4056,14 @@ def get_smart_recommendations():
                 selected_group = scored_users[start_idx:end_idx]
                 group_members = []
                 for user, score in selected_group:
+                    # 마지막으로 함께 점심 먹은 시간 계산
+                    last_dining = get_last_dining_together(employee_id, user.employee_id)
+                    
                     group_members.append({
                         "nickname": user.nickname,
                         "lunch_preference": user.lunch_preference,
                         "employee_id": user.employee_id,
-                        "dining_history": get_dining_history(user, selected_date)
+                        "last_dining_together": last_dining
                     })
                 if group_members:
                     all_recommendations.append({
