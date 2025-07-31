@@ -8,6 +8,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from sqlalchemy import desc, or_, and_, func, text
 import pandas as pd
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -51,7 +53,13 @@ def extract_keywords_from_reviews(reviews):
     return [f"#{word}" for word, count in sorted_words[:3]]
 
 # --- Helper Function ---
-# (실시간 매칭 시스템 제거로 인해 더 이상 필요하지 않음)
+def reset_user_match_status_if_needed(user):
+    today = get_seoul_today()
+    if user.match_request_time and user.match_request_time.date() != today:
+        user.matching_status = 'idle'
+        user.match_request_time = None
+        db.session.commit()
+    return user
 
 # --- 데이터베이스 모델 정의 ---
 class User(db.Model):
@@ -62,9 +70,8 @@ class User(db.Model):
     gender = db.Column(db.String(10), nullable=True)
     age_group = db.Column(db.String(20), nullable=True)
     main_dish_genre = db.Column(db.String(100), nullable=True)
-    # 실시간 매칭 시스템 제거로 인해 더 이상 필요하지 않음
-    # matching_status = db.Column(db.String(20), default='idle')
-    # match_request_time = db.Column(db.DateTime, nullable=True)
+    matching_status = db.Column(db.String(20), default='idle')
+    match_request_time = db.Column(db.DateTime, nullable=True)
     # 사용자 선호도 필드들
     food_preferences = db.Column(db.Text, nullable=True)  # 음식 선호도
     allergies = db.Column(db.Text, nullable=True)  # 알레르기 정보
@@ -400,6 +407,17 @@ class DateVote(db.Model):
         self.voting_session_id = voting_session_id
         self.voter_id = voter_id
         self.voted_date = voted_date
+
+class DailyRecommendation(db.Model):
+    """일별 추천 그룹 모델"""
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(20), nullable=False)  # YYYY-MM-DD 형식
+    group_members = db.Column(db.Text, nullable=False)  # JSON 형태로 멤버 정보 저장
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, date, group_members):
+        self.date = date
+        self.group_members = group_members
 
 class RestaurantRequest(db.Model):
     """식당 신청/수정/삭제 요청 모델"""
@@ -759,23 +777,46 @@ def get_reviews(restaurant_id):
 @app.route('/restaurants/<int:restaurant_id>/reviews', methods=['POST'])
 def add_review(restaurant_id):
     data = request.get_json() or {}
-    user = User.query.filter_by(employee_id=data.get('user_id')).first()
-    if not user:
-        return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+    restaurant = Restaurant.query.get(restaurant_id)
+    if not restaurant: return jsonify({'message': '맛집을 찾을 수 없습니다.'}), 404
     
-    # Review 생성 (사진, 태그 포함)
     new_review = Review(
         restaurant_id=restaurant_id,
         user_id=data.get('user_id'),
-        nickname=user.nickname,
+        nickname=data.get('nickname'),
         rating=data.get('rating'),
         comment=data.get('comment'),
         photo_url=data.get('photo_url'),
-        tags=','.join(data.get('tags', [])) if data.get('tags') else None
+        tags=data.get('tags')
     )
     db.session.add(new_review)
     db.session.commit()
-    return jsonify({'message': '리뷰가 성공적으로 등록되었습니다.'}), 201
+    return jsonify({'message': '리뷰가 추가되었습니다.', 'id': new_review.id}), 201
+
+@app.route('/restaurants/search', methods=['GET'])
+def search_restaurants():
+    """식당 검색 API - 드롭다운용"""
+    query = request.args.get('query', '')
+    limit = request.args.get('limit', 10, type=int)
+    
+    if not query:
+        return jsonify([])
+    
+    # 검색 쿼리
+    restaurants_query = Restaurant.query.filter(Restaurant.name.contains(query))  # type: ignore
+    restaurants = restaurants_query.limit(limit).all()
+    
+    # 간단한 정보만 반환
+    restaurants_data = []
+    for restaurant in restaurants:
+        restaurants_data.append({
+            'id': restaurant.id,
+            'name': restaurant.name,
+            'category': restaurant.category,
+            'address': restaurant.address
+        })
+    
+    return jsonify(restaurants_data)
 
 @app.route('/reviews/<int:review_id>/like', methods=['POST'])
 def like_review(review_id):
@@ -1623,8 +1664,136 @@ def delete_party(party_id):
     db.session.commit()
     return jsonify({'message': '파티가 삭제되었습니다.'})
 
-# --- 사용자 프로필, 소통 API 등은 이전과 동일하게 유지 ---
-# (실시간 매칭 시스템 제거됨)
+# --- 랜덤런치, 사용자 프로필, 소통 API 등은 이전과 동일하게 유지 ---
+@app.route('/match/status/<employee_id>', methods=['GET'])
+def get_match_status(employee_id):
+    user = User.query.filter_by(employee_id=employee_id).first()
+    if not user: return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+    user = reset_user_match_status_if_needed(user)
+    response = {'status': user.matching_status}
+    if user.matching_status == 'waiting':
+        now = datetime.now()
+        match_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now < match_time:
+            response['countdown_target'] = match_time.isoformat()
+    return jsonify(response)
+
+@app.route('/match/request', methods=['POST'])
+def request_match():
+    data = request.get_json()
+    employee_id = data['employee_id']
+    
+    user = User.query.filter_by(employee_id=employee_id).first()
+    if not user: return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+    
+    now = datetime.now()
+    today_10am = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    
+    # 예약 매칭 (전일 14:00 ~ 당일 10:00)
+    if now < today_10am:
+        user.matching_status = 'waiting'
+        user.match_request_time = now
+        db.session.commit()
+        return jsonify({'message': '오전 10시 매칭 대기열에 등록되었습니다.', 'status': 'waiting'})
+    
+    # 실시간 매칭 (당일 10:00 ~ 14:00)
+    else:
+        # 대기 중인 다른 사용자 찾기
+        waiting_users = User.query.filter(
+            User.matching_status == 'waiting',  # type: ignore
+            User.employee_id != employee_id  # type: ignore
+        ).all()  # type: ignore
+        
+        if waiting_users:
+            # 스마트 매칭: 선호도 기반으로 최적의 파트너 찾기
+            best_match = find_best_match(user, employee_id)
+            
+            if best_match:
+                # 파티 생성
+                new_party = Party(
+                    host_employee_id=employee_id,
+                    title='스마트 런치',
+                    restaurant_name='스마트 매칭',
+                    restaurant_address=None,
+                    party_date=now.strftime('%Y-%m-%d'),
+                    party_time='12:00',
+                    meeting_location='KOICA 본사',
+                    max_members=2,
+                    members_employee_ids=f"{employee_id},{best_match.employee_id}",
+                    is_from_match=True
+                )
+                db.session.add(new_party)
+                
+                # 두 사용자 모두 matched 상태로 변경
+                user.matching_status = 'matched'
+                best_match.matching_status = 'matched'
+                db.session.commit()
+                
+                compatibility_score = calculate_compatibility_score(user, best_match)
+                
+                return jsonify({
+                    'message': '스마트 매칭이 완료되었습니다!',
+                    'status': 'matched',
+                    'party_id': new_party.id,
+                    'compatibility_score': round(compatibility_score, 2),
+                    'partner': {
+                        'employee_id': best_match.employee_id,
+                        'nickname': best_match.nickname
+                    }
+                })
+            else:
+                # 호환성 높은 파트너가 없으면 대기
+                user.matching_status = 'waiting'
+                user.match_request_time = now
+                db.session.commit()
+                return jsonify({'message': '최적의 파트너를 기다리는 중입니다...', 'status': 'waiting'})
+        else:
+            # 대기 상태로 변경
+            user.matching_status = 'waiting'
+            user.match_request_time = now
+            db.session.commit()
+            return jsonify({'message': '매칭 대기 중입니다...', 'status': 'waiting'})
+
+@app.route('/match/confirm', methods=['POST'])
+def confirm_match():
+    data = request.get_json()
+    group_id = data['group_id']
+    employee_id = data['employee_id']
+    
+    # 매칭 그룹 확인 및 파티 생성 로직
+    # (실제 구현에서는 더 복잡한 매칭 로직이 필요)
+    
+    return jsonify({'message': '매칭이 확정되었습니다.', 'status': 'confirmed'})
+
+@app.route('/match/cancel', methods=['POST'])
+def cancel_match():
+    data = request.get_json()
+    employee_id = data['employee_id']
+    
+    user = User.query.filter_by(employee_id=employee_id).first()
+    if not user:
+        return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+    
+    if user.matching_status == 'waiting':
+        user.matching_status = 'idle'
+        user.match_request_time = None
+        db.session.commit()
+        return jsonify({'message': '매칭 대기가 취소되었습니다.', 'status': 'cancelled'})
+    else:
+        return jsonify({'message': '매칭 대기 상태가 아닙니다.'}), 400
+
+@app.route('/match/reject', methods=['POST'])
+def reject_match():
+    data = request.get_json()
+    employee_id = data['employee_id']
+    
+    user = User.query.filter_by(employee_id=employee_id).first()
+    if user:
+        user.matching_status = 'idle'
+        user.match_request_time = None
+        db.session.commit()
+    
+    return jsonify({'message': '매칭을 거절했습니다.', 'status': 'rejected'})
 
 # --- 새로운 랜덤 런치 시스템 API ---
 @app.route('/proposals/available-dates', methods=['GET'])
@@ -1657,6 +1826,37 @@ def get_available_dates():
             available_dates.append(date_str)
     
     return jsonify(available_dates)
+
+@app.route('/proposals/date-recommendations', methods=['GET'])
+def get_date_recommendations():
+    """특정 날짜의 추천 그룹을 가져오는 API"""
+    employee_id = request.args.get('employee_id')
+    selected_date = request.args.get('date')
+    
+    if not employee_id or not selected_date:
+        return jsonify({'error': 'employee_id and date are required'}), 400
+
+    try:
+        # 해당 날짜의 기존 추천 그룹이 있는지 확인
+        existing_recommendations = DailyRecommendation.query.filter_by(date=selected_date).all()
+        
+        if existing_recommendations:
+            # 기존 추천 그룹이 있으면 반환
+            recommendations = []
+            for rec in existing_recommendations:
+                group_members = json.loads(rec.group_members)
+                recommendations.append({
+                    "proposed_date": selected_date,
+                    "recommended_group": group_members
+                })
+            return jsonify(recommendations)
+        
+        # 기존 추천 그룹이 없으면 빈 배열 반환 (매일 자정에만 생성됨)
+        return jsonify([])
+        
+    except Exception as e:
+        print(f"Error getting date recommendations: {e}")
+        return jsonify({'error': 'Failed to get date recommendations'}), 500
 
 @app.route('/proposals/suggest-groups', methods=['POST'])
 def suggest_groups():
@@ -1717,9 +1917,16 @@ def suggest_groups():
     # 점수순으로 정렬
     user_scores.sort(key=lambda x: x[1], reverse=True)
     
+    # 중복 제거를 위한 함수
+    def create_group_key(group_users):
+        """그룹의 고유 키를 생성하는 함수"""
+        user_ids = sorted([user.employee_id for user in group_users])
+        return ','.join(user_ids)
+    
     # 여러 그룹 생성 (최대 5개)
     groups = []
     used_users = set()
+    seen_groups = set()  # 중복 제거를 위한 set
     
     for group_idx in range(min(5, len(user_scores) // 3 + 1)):
         group_users = []
@@ -1741,17 +1948,23 @@ def suggest_groups():
                 used_users.add(user.employee_id)
         
         if group_users:
-            groups.append({
-                'group_id': group_idx + 1,
-                'users': [{
-                    'employee_id': user.employee_id,
-                    'nickname': user.nickname,
-                    'lunch_preference': user.lunch_preference,
-                    'main_dish_genre': user.main_dish_genre,
-                    'gender': user.gender,
-                    'age_group': user.age_group
-                } for user in group_users]
-            })
+            # 중복 제거를 위한 그룹 키 생성
+            group_key = create_group_key(group_users)
+            
+            # 중복되지 않은 그룹만 추가
+            if group_key not in seen_groups:
+                seen_groups.add(group_key)
+                groups.append({
+                    'group_id': len(groups) + 1,  # 중복 제거 후 실제 인덱스 사용
+                    'users': [{
+                        'employee_id': user.employee_id,
+                        'nickname': user.nickname,
+                        'lunch_preference': user.lunch_preference,
+                        'main_dish_genre': user.main_dish_genre,
+                        'gender': user.gender,
+                        'age_group': user.age_group
+                    } for user in group_users]
+                })
     
     return jsonify(groups)
 
@@ -1765,8 +1978,11 @@ def create_proposal():
     if not proposer_id or not recipient_ids or not proposed_date:
         return jsonify({'message': 'proposer_id, recipient_ids, proposed_date가 필요합니다.'}), 400
     
-    # recipient_ids를 쉼표로 구분된 문자열로 변환
-    recipient_ids_str = ','.join(recipient_ids)
+    # recipient_ids가 리스트인지 확인하고 문자열로 변환
+    if isinstance(recipient_ids, list):
+        recipient_ids_str = ','.join(recipient_ids)
+    else:
+        recipient_ids_str = str(recipient_ids)
     
     new_proposal = LunchProposal(
         proposer_id=proposer_id,
@@ -1948,12 +2164,155 @@ def cancel_proposal(proposal_id):
 @app.route('/chats/<employee_id>', methods=['GET'])
 def get_my_chats(employee_id):
     chat_list = []
+    
+    print(f"=== DEBUG: 채팅방 목록 조회 시작 (사용자: {employee_id}) ===")
+    
+    # 파티 채팅방들
+    party_chat_list = []
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
+    
+    # 중복 제거를 위한 set
+    seen_party_ids = set()
+    
     for party in joined_parties:
-        chat_list.append({'id': party.id, 'type': 'party', 'title': party.title, 'subtitle': f"{party.restaurant_name} | {party.current_members}/{party.max_members}명", 'is_from_match': party.is_from_match})
+        # 중복 체크
+        if party.id in seen_party_ids:
+            continue
+        seen_party_ids.add(party.id)
+        
+        # 파티의 마지막 메시지 가져오기
+        last_message = ChatMessage.query.filter_by(
+            chat_type='party',
+            chat_id=party.id
+        ).order_by(desc(ChatMessage.created_at)).first()
+        
+        # 최근 메시지 미리보기 (최대 15글자)
+        if last_message:
+            message_preview = last_message.message
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+        else:
+            message_preview = f"{party.restaurant_name} | {party.current_members}/{party.max_members}명"
+        
+        party_chat_list.append({
+            'id': party.id, 
+            'type': 'party', 
+            'title': party.title, 
+            'subtitle': message_preview,
+            'is_from_match': party.is_from_match,
+            'last_message_time': last_message.created_at if last_message else None,
+            'unread_count': 3 if party.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
+        })
+    
+    # 단골파티 채팅방들
+    pot_chat_list = []
     joined_pots = DangolPot.query.filter(DangolPot.members.contains(employee_id)).order_by(desc(DangolPot.created_at)).all()  # type: ignore
+    
+    # 중복 제거를 위한 set
+    seen_pot_ids = set()
+    
     for pot in joined_pots:
-         chat_list.append({'id': pot.id, 'type': 'dangolpot', 'title': pot.name, 'subtitle': pot.tags})
+        # 중복 체크
+        if pot.id in seen_pot_ids:
+            continue
+        seen_pot_ids.add(pot.id)
+        
+        # 단골파티의 마지막 메시지 가져오기
+        last_message = ChatMessage.query.filter_by(
+            chat_type='dangolpot',
+            chat_id=pot.id
+        ).order_by(desc(ChatMessage.created_at)).first()
+        
+        # 최근 메시지 미리보기 (최대 15글자)
+        if last_message:
+            message_preview = last_message.message
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+        else:
+            message_preview = pot.tags
+        
+        pot_chat_list.append({
+            'id': pot.id, 
+            'type': 'dangolpot', 
+            'title': pot.name, 
+            'subtitle': message_preview,
+            'last_message_time': last_message.created_at if last_message else None,
+            'unread_count': 5 if pot.id % 3 == 0 else 0  # 테스트용 안읽은 메시지 수
+        })
+    
+    # 일반 채팅방들 (투표로 생성된 채팅방 포함)
+    user_participations = ChatParticipant.query.filter_by(user_id=employee_id).all()
+    print(f"=== DEBUG: 사용자 참여 채팅방 수: {len(user_participations)} ===")
+    
+    custom_chat_list = []
+    
+    # 중복 제거를 위한 set
+    seen_chat_room_ids = set()
+    
+    for participation in user_participations:
+        chat_room = ChatRoom.query.get(participation.room_id)
+        print(f"=== DEBUG: 채팅방 ID {participation.room_id} - 타입: {chat_room.type if chat_room else 'None'} - 이름: {chat_room.name if chat_room else 'None'} ===")
+        
+        # 중복 체크
+        if chat_room and chat_room.id in seen_chat_room_ids:
+            continue
+        if chat_room:
+            seen_chat_room_ids.add(chat_room.id)
+        
+        if chat_room and chat_room.type in ['group', 'friend']:
+            # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='custom' 사용)
+            last_message = ChatMessage.query.filter_by(
+                chat_type='custom', 
+                chat_id=chat_room.id
+            ).order_by(desc(ChatMessage.created_at)).first()
+            
+            print(f"=== DEBUG: chat_type='custom'으로 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
+            
+            # 마지막 메시지가 없으면 다른 chat_type으로도 시도
+            if not last_message:
+                last_message = ChatMessage.query.filter_by(
+                    chat_id=chat_room.id
+                ).order_by(desc(ChatMessage.created_at)).first()
+                
+                print(f"=== DEBUG: chat_id로만 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
+            
+            # 최근 메시지 미리보기 (최대 15글자)
+            message_preview = last_message.message if last_message else '새로운 채팅방입니다'
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+            
+            custom_chat_list.append({
+                'id': chat_room.id, 
+                'type': 'custom', 
+                'title': chat_room.name or '새로운 채팅방',
+                'subtitle': message_preview,
+                'last_message': last_message.message if last_message else None,
+                'last_message_time': last_message.created_at if last_message else None,
+                'unread_count': 2 if chat_room.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
+            })
+    
+    # 마지막 메시지 시간 기준으로 정렬 (최신 메시지가 있는 채팅방이 위로)
+    custom_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 파티 채팅방들도 마지막 메시지 시간 기준으로 정렬
+    party_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 단골파티 채팅방들도 마지막 메시지 시간 기준으로 정렬
+    pot_chat_list.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # 모든 채팅방을 하나의 리스트로 합치고 마지막 메시지 시간 기준으로 정렬
+    all_chats = party_chat_list + pot_chat_list + custom_chat_list
+    all_chats.sort(key=lambda x: x['last_message_time'] or datetime.min, reverse=True)
+    
+    # last_message_time 필드 제거하지 않음 (프론트엔드에서 사용)
+    # 디버깅을 위한 로그 추가
+    print(f"=== DEBUG: 최종 채팅방 목록 ===")
+    for i, chat in enumerate(all_chats):
+        print(f"채팅방 {i+1}: {chat['title']} - last_message_time: {chat.get('last_message_time')} - unread_count: {chat.get('unread_count')}")
+    
+    chat_list = all_chats
+    
+    print(f"=== DEBUG: 최종 채팅방 목록: {chat_list} ===")
     return jsonify(chat_list)
 
 @app.route('/users/<employee_id>', methods=['GET'])
@@ -2034,7 +2393,13 @@ def get_user_preferences(employee_id):
 # --- 채팅 API ---
 @app.route('/chat/messages/<chat_type>/<int:chat_id>', methods=['GET'])
 def get_chat_messages(chat_type, chat_id):
+    print(f"=== DEBUG: 채팅 메시지 조회 - chat_type: {chat_type}, chat_id: {chat_id} ===")
+    
     messages = ChatMessage.query.filter_by(chat_type=chat_type, chat_id=chat_id).order_by(ChatMessage.created_at).all()
+    print(f"=== DEBUG: 조회된 메시지 수: {len(messages)} ===")
+    
+    for msg in messages:
+        print(f"=== DEBUG: 메시지 - ID: {msg.id}, 발신자: {msg.sender_nickname}, 내용: {msg.message[:50]}... ===")
 
     # 채팅방 참여자 목록 구하기
     if chat_type == 'party':
@@ -2050,8 +2415,8 @@ def get_chat_messages(chat_type, chat_id):
         else:
             member_ids = []
     elif chat_type == 'custom':
-        # custom(1:1) 채팅은 ChatRoom/ChatParticipant에서 조회
-        room = ChatRoom.query.filter_by(type='friend', id=chat_id).first()
+        # custom 채팅은 ChatRoom/ChatParticipant에서 조회 (투표로 생성된 채팅방 포함)
+        room = ChatRoom.query.get(chat_id)
         if room:
             participants = ChatParticipant.query.filter_by(room_id=room.id).all()
             member_ids = [p.user_id for p in participants]
@@ -2133,9 +2498,20 @@ def send_chat_message():
     if not user:
         return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
     
+    # 투표로 생성된 채팅방인지 확인 (ChatRoom이 group 타입이고 해당 chat_id를 가진 경우)
+    chat_room = ChatRoom.query.get(chat_id)
+    if chat_room and chat_room.type == 'group':
+        # 투표로 생성된 채팅방의 경우 chat_type을 'custom'으로 강제 설정
+        actual_chat_type = 'custom'
+        print(f"=== DEBUG: 투표로 생성된 채팅방 감지 - chat_id: {chat_id}, 강제 chat_type: custom ===")
+    else:
+        actual_chat_type = chat_type
+    
+    print(f"=== DEBUG: 메시지 저장 - 원본 chat_type: {chat_type}, 실제 chat_type: {actual_chat_type}, chat_id: {chat_id}, sender: {sender_employee_id}, message: {message[:50]}... ===")
+    
     # 메시지 저장
     new_message = ChatMessage()
-    new_message.chat_type = chat_type
+    new_message.chat_type = actual_chat_type
     new_message.chat_id = chat_id
     new_message.sender_employee_id = sender_employee_id
     new_message.sender_nickname = user.nickname
@@ -2150,7 +2526,9 @@ def send_chat_message():
             'sender_employee_id': sender_employee_id,
             'sender_nickname': user.nickname,
             'message': message,
-            'created_at': format_korean_time(new_message.created_at)
+            'created_at': format_korean_time(new_message.created_at),
+            'chat_type': actual_chat_type,
+            'chat_id': chat_id
         }), 201
     except Exception as e:
         db.session.rollback()
@@ -2837,6 +3215,51 @@ def create_friend_chat():
         'room_id': chat_room.id
     }), 201
 
+@app.route('/chat/create', methods=['POST'])
+def create_chat_room():
+    """일반 채팅방 생성 API"""
+    data = request.get_json()
+    title = data.get('title')
+    creator_employee_id = data.get('creator_employee_id')
+    participant_employee_ids = data.get('participant_employee_ids', [])
+    
+    if not title or not creator_employee_id:
+        return jsonify({'message': '채팅방 제목과 생성자 ID가 필요합니다.'}), 400
+    
+    if not participant_employee_ids:
+        return jsonify({'message': '최소 한 명의 참여자가 필요합니다.'}), 400
+    
+    # 생성자도 참여자 목록에 추가
+    if creator_employee_id not in participant_employee_ids:
+        participant_employee_ids.append(creator_employee_id)
+    
+    try:
+        # 새 채팅방 생성
+        chat_room = ChatRoom(
+            name=title,
+            type='group'  # 일반 그룹 채팅방
+        )
+        db.session.add(chat_room)
+        db.session.flush()
+        
+        # 참여자들 추가
+        for user_id in participant_employee_ids:
+            participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
+            db.session.add(participant)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': '채팅방이 생성되었습니다.',
+            'chat_id': chat_room.id,
+            'title': chat_room.name
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating chat room: {e}")
+        return jsonify({'message': '채팅방 생성에 실패했습니다.'}), 500
+
 @app.route('/chats/filtered', methods=['GET'])
 def get_filtered_chats():
     employee_id = request.args.get('employee_id')
@@ -3336,34 +3759,33 @@ def submit_vote():
 # 임시 투표 데이터 (실제로는 데이터베이스 사용)
 votes = []
 
-# 실시간 매칭 시스템 제거로 인해 더 이상 필요하지 않음
-# def find_best_match(user, employee_id):
-#     """선호도 기반으로 최적의 매칭 파트너를 찾습니다."""
-#     waiting_users = User.query.filter(
-#         and_(
-#             User.matching_status == 'waiting',  # type: ignore
-#             User.employee_id != employee_id  # type: ignore
-#         )
-#     ).all()
-#     
-#     if not waiting_users:
-#         return None
-#     
-#     # 각 대기 사용자와의 호환성 점수 계산
-#     best_match = None
-#     best_score = 0
-#     
-#     for candidate in waiting_users:
-#         score = calculate_compatibility_score(user, candidate)
-#         if score > best_score:
-#             best_score = score
-#             best_match = candidate
-#     
-#     # 최소 호환성 점수 이상인 경우에만 매칭
-#     return best_match if best_score >= 0.3 else None
+def find_best_match(user, employee_id):
+    """선호도 기반으로 최적의 매칭 파트너를 찾습니다."""
+    waiting_users = User.query.filter(
+        and_(
+            User.matching_status == 'waiting',  # type: ignore
+            User.employee_id != employee_id  # type: ignore
+        )
+    ).all()
+    
+    if not waiting_users:
+        return None
+    
+    # 각 대기 사용자와의 호환성 점수 계산
+    best_match = None
+    best_score = 0
+    
+    for candidate in waiting_users:
+        score = calculate_compatibility_score(user, candidate)
+        if score > best_score:
+            best_score = score
+            best_match = candidate
+    
+    # 최소 호환성 점수 이상인 경우에만 매칭
+    return best_match if best_score >= 0.3 else None
 
 def calculate_compatibility_score(user1, user2):
-    """두 사용자 간의 호환성 점수를 계산합니다 (0-1). 제안 기반 매칭에서 사용됩니다."""
+    """두 사용자 간의 호환성 점수를 계산합니다 (0-1)."""
     score = 0.0
     
     # 음식 선호도 비교
@@ -3403,6 +3825,52 @@ SMART_LUNCH_CACHE_DATE = None
 
 # 패턴 점수 계산 예시 함수
 # (실제 서비스에서는 더 정교하게 구현 가능)
+def get_last_dining_together(user1_id, user2_id):
+    """두 사용자가 마지막으로 함께 점심을 먹은 시간을 계산하는 함수"""
+    try:
+        # 두 사용자가 함께 참여한 파티 중 가장 최근 것을 찾기
+        latest_party = db.session.query(Party).filter(
+            and_(
+                or_(
+                    and_(
+                        getattr(Party, 'host_employee_id') == user1_id,
+                        getattr(Party, 'members_employee_ids').contains(user2_id)
+                    ),
+                    and_(
+                        getattr(Party, 'host_employee_id') == user2_id,
+                        getattr(Party, 'members_employee_ids').contains(user1_id)
+                    )
+                ),
+                getattr(Party, 'party_date') < get_seoul_today().strftime('%Y-%m-%d')
+            )
+        ).order_by(desc(Party.party_date)).first()
+        
+        if latest_party:
+            party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d')
+            today = get_seoul_today()
+            days_diff = (today - party_date).days
+            
+            if days_diff == 0:
+                return "오늘"
+            elif days_diff == 1:
+                return "어제"
+            elif days_diff < 7:
+                return f"{days_diff}일 전"
+            elif days_diff < 30:
+                weeks = days_diff // 7
+                return f"{weeks}주 전"
+            elif days_diff < 365:
+                months = days_diff // 30
+                return f"{months}개월 전"
+            else:
+                years = days_diff // 365
+                return f"{years}년 전"
+        else:
+            return "처음 만나는 동료"
+    except Exception as e:
+        print(f"Error calculating last dining together: {e}")
+        return "알 수 없음"
+
 def calculate_pattern_score(requester, user):
     score = 0.0
     # 점심 시간대 선호 일치
@@ -3421,54 +3889,31 @@ def calculate_pattern_score(requester, user):
 def get_smart_recommendations():
     global SMART_LUNCH_CACHE, SMART_LUNCH_CACHE_DATE
     employee_id = request.args.get('employee_id')
+    selected_date = request.args.get('date')  # 새로운 파라미터
+    
     if not employee_id:
         return jsonify({'error': 'employee_id is required'}), 400
 
     now = datetime.utcnow() + timedelta(hours=9)
     today_str = now.strftime('%Y-%m-%d')
 
-    if SMART_LUNCH_CACHE_DATE != today_str:
-        SMART_LUNCH_CACHE = {}
-        SMART_LUNCH_CACHE_DATE = today_str
-
-    if employee_id in SMART_LUNCH_CACHE:
-        groups = SMART_LUNCH_CACHE[employee_id]
-        random.shuffle(groups)
-        return jsonify(groups)
+    # 캐시 완전 비활성화 - 항상 새로운 데이터 생성
+    SMART_LUNCH_CACHE = {}
+    SMART_LUNCH_CACHE_DATE = today_str
 
     try:
         today = get_seoul_today()
-        empty_dates = []
-        for i in range(14):
+        available_dates = []
+        for i in range(180):  # 6개월 범위로 확장 (180일)
             check_date = today + timedelta(days=i)
-            if check_date.weekday() >= 5:
+            if check_date.weekday() >= 5:  # 주말 제외
                 continue
             date_string = check_date.strftime('%Y-%m-%d')
-            has_party = db.session.query(Party).filter(
-                and_(
-                    getattr(Party, 'party_date') == date_string,
-                    or_(getattr(Party, 'host_employee_id') == employee_id,
-                        getattr(Party, 'members_employee_ids').contains(employee_id))
-                )
-            ).first()
-            has_personal = db.session.query(PersonalSchedule).filter(
-                and_(
-                    getattr(PersonalSchedule, 'schedule_date') == date_string,
-                    getattr(PersonalSchedule, 'employee_id') == employee_id
-                )
-            ).first()
-            if not has_party and not has_personal:
-                empty_dates.append(date_string)
+            available_dates.append(date_string)
 
-        total_groups = 100
-        date_group_counts = []
-        if len(empty_dates) >= 3:
-            date_group_counts = [int(total_groups*0.85), int(total_groups*0.1), int(total_groups*0.03)]
-            rest = total_groups - sum(date_group_counts)
-            date_group_counts += [rest]
-        else:
-            per_date = total_groups // max(1, len(empty_dates))
-            date_group_counts = [per_date]*len(empty_dates)
+        # 각 날짜마다 최대 50개씩 그룹 생성
+        per_date = 50
+        date_group_counts = [per_date] * len(available_dates)
 
         all_recommendations = []
         requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
@@ -3505,11 +3950,15 @@ def get_smart_recommendations():
             member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
             return f"{date}_{','.join(member_ids)}"
 
-        # 1~3일차 그룹 생성
-        for i, group_count in enumerate(date_group_counts[:3]):
-            if i >= len(empty_dates):
+        # 모든 날짜에 대해 그룹 생성
+        print(f"DEBUG: Total available dates: {len(available_dates)}")
+        print(f"DEBUG: First 10 available dates: {available_dates[:10]}")
+        print(f"DEBUG: Group counts for first 10 dates: {date_group_counts[:10]}")
+        for i, group_count in enumerate(date_group_counts):
+            if i >= len(available_dates):
                 break
-            selected_date = empty_dates[i]
+            selected_date = available_dates[i]
+            print(f"DEBUG: Processing date {selected_date} with {group_count} groups")
             available_users = db.session.query(User).filter(
                 and_(
                     getattr(User, 'employee_id') != employee_id,
@@ -3536,7 +3985,7 @@ def get_smart_recommendations():
                 total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
                 scored_users.append((user, total_score))
             scored_users.sort(key=lambda x: x[1], reverse=True)
-            for group_idx in range(min(group_count, len(scored_users)//3)):
+            for group_idx in range(min(50, len(scored_users) // 3 + 1)):
                 start_idx = group_idx*3
                 end_idx = start_idx+3
                 if end_idx > len(scored_users):
@@ -3544,71 +3993,22 @@ def get_smart_recommendations():
                 selected_group = scored_users[start_idx:end_idx]
                 group_members = []
                 for user, score in selected_group:
+                    # 마지막으로 함께 점심 먹은 시간 계산
+                    last_dining = get_last_dining_together(employee_id, user.employee_id)
+                    
                     group_members.append({
                         "nickname": user.nickname,
                         "lunch_preference": user.lunch_preference,
                         "employee_id": user.employee_id,
-                        "dining_history": get_dining_history(user, selected_date)
+                        "last_dining_together": last_dining
                     })
                 if group_members:
                     all_recommendations.append({
                         "proposed_date": selected_date,
                         "recommended_group": group_members
                     })
-        # 나머지 날짜 그룹 (랜덤 샘플)
-        if len(date_group_counts) > 3 and len(empty_dates) > 3:
-            rest_count = date_group_counts[3]
-            rest_dates = empty_dates[3:]
-            rest_groups = []
-            for selected_date in rest_dates:
-                available_users = db.session.query(User).filter(
-                    and_(
-                        getattr(User, 'employee_id') != employee_id,
-                        ~db.session.query(Party).filter(
-                            and_(
-                                getattr(Party, 'party_date') == selected_date,
-                                or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
-                                    getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
-                            )
-                        ).exists(),
-                        ~db.session.query(PersonalSchedule).filter(
-                            and_(
-                                getattr(PersonalSchedule, 'schedule_date') == selected_date,
-                                getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
-                            )
-                        ).exists()
-                    )
-                ).all()
-                scored_users = []
-                for user in available_users:
-                    preference_score = calculate_compatibility_score(requester, user)
-                    pattern_score = calculate_pattern_score(requester, user)
-                    random_score = random.random()
-                    total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
-                    scored_users.append((user, total_score))
-                random.shuffle(scored_users)
-                for group_idx in range(len(scored_users)//3):
-                    start_idx = group_idx*3
-                    end_idx = start_idx+3
-                    if end_idx > len(scored_users):
-                        break
-                    selected_group = scored_users[start_idx:end_idx]
-                    group_members = []
-                    for user, score in selected_group:
-                        group_members.append({
-                            "nickname": user.nickname,
-                            "lunch_preference": user.lunch_preference,
-                            "employee_id": user.employee_id,
-                            "dining_history": get_dining_history(user, selected_date)
-                        })
-                    if group_members:
-                        rest_groups.append({
-                            "proposed_date": selected_date,
-                            "recommended_group": group_members
-                        })
-            if len(rest_groups) > rest_count:
-                rest_groups = random.sample(rest_groups, rest_count)
-            all_recommendations.extend(rest_groups)
+                    print(f"DEBUG: Created group {len(all_recommendations)} for date {selected_date}")
+
         
         # 중복 제거 로직 추가
         seen_groups = set()
@@ -3628,7 +4028,8 @@ def get_smart_recommendations():
                 all_recommendations.append(random.choice(all_recommendations))
         all_recommendations = all_recommendations[:100]
         random.shuffle(all_recommendations)
-        SMART_LUNCH_CACHE[employee_id] = all_recommendations
+        # 캐시 저장 비활성화
+        # SMART_LUNCH_CACHE[employee_id] = all_recommendations
         return jsonify(all_recommendations)
     except Exception as e:
         print(f"Error in smart recommendations: {e}")
@@ -3687,9 +4088,31 @@ def create_voting_session():
             # 기본 가능한 날짜 계산
             available_dates, alternative_dates = find_available_dates_for_participants(participant_ids, max_days=30)
         
+        # 채팅방이 없는 경우 자동으로 생성
+        chat_room_id = data['chat_room_id']
+        print(f"=== DEBUG: 투표 세션 생성 - chat_room_id: {chat_room_id} ===")
+        
+        if chat_room_id == -1:
+            # 새 채팅방 생성
+            chat_room = ChatRoom(
+                name=data['title'],
+                type='group'
+            )
+            db.session.add(chat_room)
+            db.session.flush()
+            chat_room_id = chat_room.id
+            
+            print(f"=== DEBUG: 새 채팅방 생성 - ID: {chat_room_id}, 이름: {data['title']}, 타입: group ===")
+            
+            # 참여자들 추가
+            for user_id in participant_ids:
+                participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
+                db.session.add(participant)
+                print(f"=== DEBUG: 참여자 추가 - user_id: {user_id} ===")
+        
         # 새로운 투표 세션 생성
         voting_session = VotingSession(
-            chat_room_id=data['chat_room_id'],
+            chat_room_id=chat_room_id,
             title=data['title'],
             participants=json.dumps(participant_ids),
             created_by=data['created_by'],
@@ -3706,46 +4129,48 @@ def create_voting_session():
         db.session.add(voting_session)
         db.session.commit()
         
-        # 채팅방이 있는 경우에만 채팅방에 메시지 전송
-        if data['chat_room_id'] != -1:
-            # 채팅방에 투표 시작 시스템 메시지 추가
-            # 한국 시간으로 변환해서 표시
-            korean_expires_at = voting_session.expires_at + timedelta(hours=9)
-            system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
-            
-            chat_message = ChatMessage(
-                chat_type='party',
-                chat_id=data['chat_room_id'],
-                sender_employee_id='SYSTEM',
-                sender_nickname='시스템',
-                message=system_message
-            )
-            chat_message.created_at = datetime.now()  # 한국 시간으로 설정
-            db.session.add(chat_message)
-            
-            # WebSocket으로 실시간 알림
-            room = f"party_{data['chat_room_id']}"
-            
-            # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
-            socketio.emit('new_message', {
-                'id': chat_message.id,
-                'sender_employee_id': 'SYSTEM',
-                'sender_nickname': '시스템',
-                'message': system_message,
-                'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'message_type': 'voting_notification',
-                'voting_session_id': voting_session.id,
-                'chat_type': 'party',
-                'chat_id': data['chat_room_id']
-            }, room=room)
-            
-            # 투표 세션 알림
-            socketio.emit('new_voting_session', {
-                'session_id': voting_session.id,
-                'title': voting_session.title,
-                'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
-                'available_dates': available_dates
-            }, room=room)
+        # 채팅방에 투표 시작 시스템 메시지 추가
+        # 한국 시간으로 변환해서 표시
+        korean_expires_at = voting_session.expires_at + timedelta(hours=9)
+        system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
+        
+        print(f"=== DEBUG: 투표 메시지 생성 - chat_type: custom, chat_id: {chat_room_id} ===")
+        
+        chat_message = ChatMessage(
+            chat_type='custom',
+            chat_id=chat_room_id,
+            sender_employee_id='SYSTEM',
+            sender_nickname='시스템',
+            message=system_message
+        )
+        chat_message.created_at = datetime.now()  # 한국 시간으로 설정
+        db.session.add(chat_message)
+        
+        print(f"=== DEBUG: 투표 메시지 내용: {system_message[:100]}... ===")
+        
+        # WebSocket으로 실시간 알림
+        room = f"custom_{chat_room_id}"
+        
+        # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
+        socketio.emit('new_message', {
+            'id': chat_message.id,
+            'sender_employee_id': 'SYSTEM',
+            'sender_nickname': '시스템',
+            'message': system_message,
+            'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'message_type': 'voting_notification',
+            'voting_session_id': voting_session.id,
+            'chat_type': 'custom',
+            'chat_id': chat_room_id
+        }, room=room)
+        
+        # 투표 세션 알림
+        socketio.emit('new_voting_session', {
+            'session_id': voting_session.id,
+            'title': voting_session.title,
+            'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
+            'available_dates': available_dates
+        }, room=room)
         
         # 참가자들에게 알림 생성 (투표 생성자도 포함) - 채팅방 여부와 상관없이 항상 생성
         active_participants = data.get('participants', [])
@@ -3766,7 +4191,8 @@ def create_voting_session():
             'title': voting_session.title,
             'available_dates': available_dates,
             'expires_at': voting_session.expires_at.strftime('%Y-%m-%d %H:%M'),
-            'status': voting_session.status
+            'status': voting_session.status,
+            'chat_room_id': chat_room_id  # 생성된 채팅방 ID 반환
         }), 201
         
     except Exception as e:
@@ -3818,7 +4244,7 @@ def get_voting_session(session_id):
                     completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
                     
                     chat_message = ChatMessage(
-                        chat_type='party',
+                        chat_type='custom',
                         chat_id=session.chat_room_id,
                         sender_employee_id='SYSTEM',
                         sender_nickname='시스템',
@@ -3828,7 +4254,7 @@ def get_voting_session(session_id):
                     db.session.add(chat_message)
                     
                     # WebSocket으로 실시간 알림
-                    room = f"party_{session.chat_room_id}"
+                    room = f"custom_{session.chat_room_id}"
                     socketio.emit('new_message', {
                         'id': chat_message.id,
                         'sender_employee_id': 'SYSTEM',
@@ -3837,7 +4263,7 @@ def get_voting_session(session_id):
                         'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                         'message_type': 'voting_completed',
                         'voting_session_id': session.id,
-                        'chat_type': 'party',
+                        'chat_type': 'custom',
                         'chat_id': session.chat_room_id
                     }, room=room)
                 
@@ -3990,7 +4416,7 @@ def vote_for_date(session_id):
         
         # WebSocket으로 실시간 업데이트 (채팅방이 있는 경우에만)
         if session.chat_room_id != -1:
-            room = f"party_{session.chat_room_id}"
+            room = f"custom_{session.chat_room_id}"
             socketio.emit('vote_updated', {
                 'session_id': session_id,
                 'voter_id': voter_id,
@@ -4026,41 +4452,39 @@ def vote_for_date(session_id):
                 weekday = datetime.strptime(winning_date, '%Y-%m-%d').weekday()
                 weekday_name = ['월', '화', '수', '목', '금', '토', '일'][weekday]
                 
-                # 채팅방이 있는 경우에만 채팅방에 메시지 전송
-                if session.chat_room_id != -1:
-                    # 채팅방에 투표 완료 시스템 메시지 추가
-                    completion_message = f"🎉 '{session.title}' 투표가 완료되었습니다!\n모든 참가자가 투표를 완료했습니다.\n\n✅ 확정 날짜: {winning_date} ({weekday_name})"
-                    if session.restaurant_name:
-                        completion_message += f"\n🍽️ 식당: {session.restaurant_name}"
-                    if session.meeting_time:
-                        completion_message += f"\n🕐 시간: {session.meeting_time}"
-                    if session.meeting_location:
-                        completion_message += f"\n📍 장소: {session.meeting_location}"
-                    completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
-                    
-                    chat_message = ChatMessage(
-                        chat_type='party',
-                        chat_id=session.chat_room_id,
-                        sender_employee_id='SYSTEM',
-                        sender_nickname='시스템',
-                        message=completion_message
-                    )
-                    chat_message.created_at = datetime.now()
-                    db.session.add(chat_message)
-                    
-                    # WebSocket으로 실시간 알림
-                    room = f"party_{session.chat_room_id}"
-                    socketio.emit('new_message', {
-                        'id': chat_message.id,
-                        'sender_employee_id': 'SYSTEM',
-                        'sender_nickname': '시스템',
-                        'message': completion_message,
-                        'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                        'message_type': 'voting_completed',
-                        'voting_session_id': session.id,
-                        'chat_type': 'party',
-                        'chat_id': session.chat_room_id
-                    }, room=room)
+                # 채팅방에 투표 완료 시스템 메시지 추가
+                completion_message = f"🎉 '{session.title}' 투표가 완료되었습니다!\n모든 참가자가 투표를 완료했습니다.\n\n✅ 확정 날짜: {winning_date} ({weekday_name})"
+                if session.restaurant_name:
+                    completion_message += f"\n🍽️ 식당: {session.restaurant_name}"
+                if session.meeting_time:
+                    completion_message += f"\n🕐 시간: {session.meeting_time}"
+                if session.meeting_location:
+                    completion_message += f"\n📍 장소: {session.meeting_location}"
+                completion_message += f"\n\n일정이 자동으로 저장되었습니다 📅"
+                
+                chat_message = ChatMessage(
+                    chat_type='custom',
+                    chat_id=session.chat_room_id,
+                    sender_employee_id='SYSTEM',
+                    sender_nickname='시스템',
+                    message=completion_message
+                )
+                chat_message.created_at = datetime.now()
+                db.session.add(chat_message)
+                
+                # WebSocket으로 실시간 알림
+                room = f"custom_{session.chat_room_id}"
+                socketio.emit('new_message', {
+                    'id': chat_message.id,
+                    'sender_employee_id': 'SYSTEM',
+                    'sender_nickname': '시스템',
+                    'message': completion_message,
+                    'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'message_type': 'voting_completed',
+                    'voting_session_id': session.id,
+                    'chat_type': 'custom',
+                    'chat_id': session.chat_room_id
+                }, room=room)
                 
                 db.session.commit()
                 
@@ -4403,7 +4827,7 @@ def auto_create_party_from_voting(session):
         
         # WebSocket으로 파티 생성 알림 (채팅방이 있는 경우에만)
         if session.chat_room_id != -1:
-            room = f"party_{session.chat_room_id}"
+            room = f"custom_{session.chat_room_id}"
             socketio.emit('party_created_from_voting', {
                 'party_id': new_party.id,
                 'title': new_party.title,
@@ -4416,6 +4840,88 @@ def auto_create_party_from_voting(session):
         print(f"Error auto creating party: {e}")
 
 # --- 기존 함수들 ---
+
+def generate_daily_recommendations():
+    """매일 자정에 새로운 추천 그룹 생성"""
+    try:
+        today = get_seoul_today()
+        today_str = today.strftime('%Y-%m-%d')
+        
+        # 오늘 날짜의 추천 그룹이 이미 있는지 확인
+        existing = DailyRecommendation.query.filter_by(date=today_str).first()
+        if existing:
+            return  # 이미 생성되어 있으면 스킵
+        
+        # 모든 사용자 가져오기
+        all_users = User.query.all()
+        
+        # 각 사용자별로 추천 그룹 생성 (최대 20개 그룹)
+        group_count = 0
+        for user in all_users:
+            if group_count >= 20:
+                break
+                
+            # 해당 사용자와 호환되는 다른 사용자들 찾기
+            compatible_users = []
+            for other_user in all_users:
+                if other_user.employee_id != user.employee_id:
+                    preference_score = calculate_compatibility_score(user, other_user)
+                    pattern_score = calculate_pattern_score(user, other_user)
+                    # 일관된 시드 사용
+                    random.seed(hash(today_str + other_user.employee_id))
+                    random_score = random.random()
+                    total_score = preference_score * 0.6 + pattern_score * 0.3 + random_score * 0.1
+                    compatible_users.append((other_user, total_score))
+            
+            # 점수순으로 정렬
+            compatible_users.sort(key=lambda x: x[1], reverse=True)
+            
+            # 그룹 생성 (3명씩)
+            for i in range(0, len(compatible_users), 3):
+                if i + 3 <= len(compatible_users) and group_count < 20:
+                    group_members = []
+                    for other_user, score in compatible_users[i:i+3]:
+                        last_dining = get_last_dining_together(user.employee_id, other_user.employee_id)
+                        
+                        group_members.append({
+                            "nickname": other_user.nickname,
+                            "lunch_preference": other_user.lunch_preference,
+                            "employee_id": other_user.employee_id,
+                            "compatibility_score": round(score, 2),
+                            "last_dining_together": last_dining
+                        })
+                    
+                    if group_members:
+                        daily_rec = DailyRecommendation(today_str, json.dumps(group_members))
+                        db.session.add(daily_rec)
+                        group_count += 1
+        
+        db.session.commit()
+        print(f"Generated {group_count} daily recommendations for {today_str}")
+        
+    except Exception as e:
+        print(f"Error generating daily recommendations: {e}")
+        db.session.rollback()
+
+# 스케줄러 초기화
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    func=generate_daily_recommendations,
+    trigger=CronTrigger(hour=0, minute=0, timezone='Asia/Seoul'),
+    id='daily_recommendations',
+    name='Generate daily recommendations at midnight',
+    replace_existing=True
+)
+scheduler.start()
+
+@app.route('/proposals/generate-today', methods=['POST'])
+def generate_today_recommendations():
+    """오늘 날짜의 추천 그룹을 수동으로 생성하는 API (테스트용)"""
+    try:
+        generate_daily_recommendations()
+        return jsonify({'message': 'Today\'s recommendations generated successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
