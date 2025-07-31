@@ -8,6 +8,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from sqlalchemy import desc, or_, and_, func, text
 import pandas as pd
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -405,6 +407,17 @@ class DateVote(db.Model):
         self.voting_session_id = voting_session_id
         self.voter_id = voter_id
         self.voted_date = voted_date
+
+class DailyRecommendation(db.Model):
+    """일별 추천 그룹 모델"""
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(20), nullable=False)  # YYYY-MM-DD 형식
+    group_members = db.Column(db.Text, nullable=False)  # JSON 형태로 멤버 정보 저장
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, date, group_members):
+        self.date = date
+        self.group_members = group_members
 
 class RestaurantRequest(db.Model):
     """식당 신청/수정/삭제 요청 모델"""
@@ -1824,6 +1837,25 @@ def get_date_recommendations():
         return jsonify({'error': 'employee_id and date are required'}), 400
 
     try:
+        # 먼저 해당 날짜의 기존 추천 그룹이 있는지 확인
+        existing_recommendations = DailyRecommendation.query.filter_by(date=selected_date).all()
+        
+        if existing_recommendations:
+            # 기존 추천 그룹이 있으면 반환
+            recommendations = []
+            for rec in existing_recommendations:
+                group_members = json.loads(rec.group_members)
+                recommendations.append({
+                    "proposed_date": selected_date,
+                    "recommended_group": group_members
+                })
+            return jsonify(recommendations)
+        
+        # 기존 추천 그룹이 없으면 새로 생성
+        requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
+        if not requester:
+            return jsonify([])
+
         # 해당 날짜에 사용 가능한 사용자들 찾기
         available_users = db.session.query(User).filter(
             and_(
@@ -1846,25 +1878,23 @@ def get_date_recommendations():
             )
         ).all()
 
-        requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
-        if not requester:
-            return jsonify([])
-
         # 호환성 점수 계산 및 그룹 생성
         scored_users = []
         for user in available_users:
             preference_score = calculate_compatibility_score(requester, user)
             pattern_score = calculate_pattern_score(requester, user)
+            # 일관된 시드 사용 (날짜 기반)
+            random.seed(hash(selected_date + user.employee_id))
             random_score = random.random()
             total_score = preference_score * 0.6 + pattern_score * 0.3 + random_score * 0.1
             scored_users.append((user, total_score))
         
         scored_users.sort(key=lambda x: x[1], reverse=True)
         
-        # 그룹 생성 (3명씩) - 더 많은 그룹 생성
+        # 그룹 생성 (3명씩) - 최대 20개 그룹
         recommendations = []
         for i in range(0, len(scored_users), 3):
-            if i + 3 <= len(scored_users):
+            if i + 3 <= len(scored_users) and len(recommendations) < 20:
                 group_members = []
                 for user, score in scored_users[i:i+3]:
                     # 마지막으로 함께 점심 먹은 시간 계산
@@ -1879,14 +1909,16 @@ def get_date_recommendations():
                     })
                 
                 if group_members:
+                    # 데이터베이스에 저장
+                    daily_rec = DailyRecommendation(selected_date, json.dumps(group_members))
+                    db.session.add(daily_rec)
+                    
                     recommendations.append({
                         "proposed_date": selected_date,
                         "recommended_group": group_members
                     })
         
-        # 최대 20개 그룹으로 증가 (기존 10개에서)
-        recommendations = recommendations[:20]
-        
+        db.session.commit()
         return jsonify(recommendations)
         
     except Exception as e:
@@ -4901,6 +4933,74 @@ def auto_create_party_from_voting(session):
         print(f"Error auto creating party: {e}")
 
 # --- 기존 함수들 ---
+
+def generate_daily_recommendations():
+    """매일 자정에 새로운 추천 그룹 생성"""
+    try:
+        today = get_seoul_today()
+        today_str = today.strftime('%Y-%m-%d')
+        
+        # 오늘 날짜의 추천 그룹이 이미 있는지 확인
+        existing = DailyRecommendation.query.filter_by(date=today_str).first()
+        if existing:
+            return  # 이미 생성되어 있으면 스킵
+        
+        # 모든 사용자 가져오기
+        all_users = User.query.all()
+        
+        # 각 사용자별로 추천 그룹 생성
+        for user in all_users:
+            # 해당 사용자와 호환되는 다른 사용자들 찾기
+            compatible_users = []
+            for other_user in all_users:
+                if other_user.employee_id != user.employee_id:
+                    preference_score = calculate_compatibility_score(user, other_user)
+                    pattern_score = calculate_pattern_score(user, other_user)
+                    # 일관된 시드 사용
+                    random.seed(hash(today_str + other_user.employee_id))
+                    random_score = random.random()
+                    total_score = preference_score * 0.6 + pattern_score * 0.3 + random_score * 0.1
+                    compatible_users.append((other_user, total_score))
+            
+            # 점수순으로 정렬
+            compatible_users.sort(key=lambda x: x[1], reverse=True)
+            
+            # 그룹 생성 (3명씩, 최대 20개 그룹)
+            for i in range(0, len(compatible_users), 3):
+                if i + 3 <= len(compatible_users):
+                    group_members = []
+                    for other_user, score in compatible_users[i:i+3]:
+                        last_dining = get_last_dining_together(user.employee_id, other_user.employee_id)
+                        
+                        group_members.append({
+                            "nickname": other_user.nickname,
+                            "lunch_preference": other_user.lunch_preference,
+                            "employee_id": other_user.employee_id,
+                            "compatibility_score": round(score, 2),
+                            "last_dining_together": last_dining
+                        })
+                    
+                    if group_members:
+                        daily_rec = DailyRecommendation(today_str, json.dumps(group_members))
+                        db.session.add(daily_rec)
+        
+        db.session.commit()
+        print(f"Generated daily recommendations for {today_str}")
+        
+    except Exception as e:
+        print(f"Error generating daily recommendations: {e}")
+        db.session.rollback()
+
+# 스케줄러 초기화
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    func=generate_daily_recommendations,
+    trigger=CronTrigger(hour=0, minute=0, timezone='Asia/Seoul'),
+    id='daily_recommendations',
+    name='Generate daily recommendations at midnight',
+    replace_existing=True
+)
+scheduler.start()
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
