@@ -3908,7 +3908,7 @@ def get_smart_recommendations():
     try:
         today = get_seoul_today()
         available_dates = []
-        for i in range(180):  # 6개월 범위로 확장 (180일)
+        for i in range(14):  # 2주 범위로 제한 (14일)
             check_date = today + timedelta(days=i)
             if check_date.weekday() >= 5:  # 주말 제외
                 continue
