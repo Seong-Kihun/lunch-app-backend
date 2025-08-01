@@ -3939,8 +3939,8 @@ def get_smart_recommendations():
                 ).order_by(desc(getattr(Party, 'party_date'))).first()
                 if last_party:
                     last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
-                    # 타입 안전성을 위해 명시적으로 date 타입으로 변환
-                    today_date = today if isinstance(today, datetime.date) else today.date()
+                    # today를 명시적으로 date 타입으로 변환
+                    today_date = today.date() if hasattr(today, 'date') else today
                     days_diff = (today_date - last_party_date).days
                     if days_diff == 1:
                         return "어제 함께 식사"
