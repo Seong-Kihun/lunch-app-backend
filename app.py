@@ -3925,27 +3925,31 @@ def get_smart_recommendations():
             return jsonify([])
 
         def get_dining_history(user, selected_date):
-            last_party = db.session.query(Party).filter(
-                and_(
-                    or_(
-                        and_(getattr(Party, 'host_employee_id') == employee_id, getattr(Party, 'members_employee_ids').contains(user.employee_id)),
-                        and_(getattr(Party, 'host_employee_id') == user.employee_id, getattr(Party, 'members_employee_ids').contains(employee_id))
-                    ),
-                    getattr(Party, 'party_date') < selected_date
-                )
-            ).order_by(desc(getattr(Party, 'party_date'))).first()
-            if last_party:
-                last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
-                days_diff = (today - last_party_date).days
-                if days_diff == 1:
-                    return "어제 함께 식사"
-                elif days_diff <= 7:
-                    return f"{days_diff}일 전 함께 식사"
-                elif days_diff <= 30:
-                    return f"{days_diff//7}주 전 함께 식사"
+            try:
+                last_party = db.session.query(Party).filter(
+                    and_(
+                        or_(
+                            and_(getattr(Party, 'host_employee_id') == employee_id, getattr(Party, 'members_employee_ids').contains(user.employee_id)),
+                            and_(getattr(Party, 'host_employee_id') == user.employee_id, getattr(Party, 'members_employee_ids').contains(employee_id))
+                        ),
+                        getattr(Party, 'party_date') < selected_date
+                    )
+                ).order_by(desc(getattr(Party, 'party_date'))).first()
+                if last_party:
+                    last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
+                    days_diff = (today - last_party_date).days
+                    if days_diff == 1:
+                        return "어제 함께 식사"
+                    elif days_diff <= 7:
+                        return f"{days_diff}일 전 함께 식사"
+                    elif days_diff <= 30:
+                        return f"{days_diff//7}주 전 함께 식사"
+                    else:
+                        return "1달 이상 전"
                 else:
-                    return "1달 이상 전"
-            else:
+                    return "처음 만나는 동료"
+            except Exception as e:
+                print(f"Error calculating last dining together: {e}")
                 return "처음 만나는 동료"
 
         def create_group_key(recommendation):
@@ -4075,13 +4079,8 @@ def get_smart_recommendations():
         # 캐시 저장 비활성화
         # SMART_LUNCH_CACHE[employee_id] = all_recommendations
         
-        return jsonify({
-            'recommendations': paginated_recommendations,
-            'total_count': total_count,
-            'has_more': offset + limit < total_count,
-            'current_offset': offset,
-            'current_limit': limit
-        })
+        # 프론트엔드 호환성을 위해 기존 형식으로 반환
+        return jsonify(paginated_recommendations)
     except Exception as e:
         print(f"Error in smart recommendations: {e}")
         return jsonify({'error': 'Internal server error'}), 500
