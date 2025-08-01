@@ -3889,71 +3889,45 @@ def calculate_pattern_score(requester, user):
 
 @app.route('/proposals/smart-recommendations', methods=['GET'])
 def get_smart_recommendations():
-    global SMART_LUNCH_CACHE, SMART_LUNCH_CACHE_DATE
     employee_id = request.args.get('employee_id')
-    selected_date = request.args.get('date')  # 새로운 파라미터
-    
-    # 페이지네이션 파라미터 추가
-    limit = int(request.args.get('limit', 10))  # 기본값 10개
-    offset = int(request.args.get('offset', 0))  # 기본값 0부터
-    
-    # 기본 날짜 설정: 가장 가까운 영업일
-    if not selected_date:
-        today = get_seoul_today()
-        # 오늘이 주말이면 다음 월요일로 설정
-        if today.weekday() >= 5:  # 토요일(5) 또는 일요일(6)
-            days_until_monday = (7 - today.weekday()) % 7
-            if days_until_monday == 0:
-                days_until_monday = 7
-            selected_date = (today + timedelta(days=days_until_monday)).strftime('%Y-%m-%d')
-        else:
-            selected_date = today.strftime('%Y-%m-%d')
+    selected_date = request.args.get('selected_date')  # 클릭한 날짜
     
     if not employee_id:
         return jsonify({'error': 'employee_id is required'}), 400
 
-    now = datetime.utcnow() + timedelta(hours=9)
-    today_str = now.strftime('%Y-%m-%d')
-
-    # 캐시 완전 비활성화 - 항상 새로운 데이터 생성
-    SMART_LUNCH_CACHE = {}
-    SMART_LUNCH_CACHE_DATE = today_str
-
     try:
-        today = get_seoul_today()
-        available_dates = []
-        for i in range(30):  # 1개월 범위로 확장 (30일)
-            check_date = today + timedelta(days=i)
-            if check_date.weekday() >= 5:  # 주말 제외
-                continue
-            date_string = check_date.strftime('%Y-%m-%d')
-            available_dates.append(date_string)
-
-        # 각 날짜마다 최대 10개씩 그룹 생성 (성능 개선)
-        per_date = 10
-        date_group_counts = [per_date] * len(available_dates)
+        # 기본 날짜 설정: 가장 가까운 영업일
+        if not selected_date:
+            today = get_seoul_today()
+            # 오늘이 주말이면 다음 월요일로 설정
+            if today.weekday() >= 5:  # 토요일(5) 또는 일요일(6)
+                days_until_monday = (7 - today.weekday()) % 7
+                if days_until_monday == 0:
+                    days_until_monday = 7
+                selected_date = (today + timedelta(days=days_until_monday)).strftime('%Y-%m-%d')
+            else:
+                selected_date = today.strftime('%Y-%m-%d')
 
         all_recommendations = []
         requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
         if not requester:
             return jsonify([])
 
-        def get_dining_history(user, selected_date):
+        def get_last_dining_together(user1_id, user2_id):
             try:
-                last_party = db.session.query(Party).filter(
+                latest_party = db.session.query(Party).filter(
                     and_(
                         or_(
-                            and_(getattr(Party, 'host_employee_id') == employee_id, getattr(Party, 'members_employee_ids').contains(user.employee_id)),
-                            and_(getattr(Party, 'host_employee_id') == user.employee_id, getattr(Party, 'members_employee_ids').contains(employee_id))
+                            and_(getattr(Party, 'host_employee_id') == user1_id, getattr(Party, 'members_employee_ids').contains(user2_id)),
+                            and_(getattr(Party, 'host_employee_id') == user2_id, getattr(Party, 'members_employee_ids').contains(user1_id))
                         ),
                         getattr(Party, 'party_date') < selected_date
                     )
                 ).order_by(desc(getattr(Party, 'party_date'))).first()
-                if last_party:
-                    last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
-                    # today 변수 대신 직접 현재 날짜 계산 (한국 시간)
+                if latest_party:
+                    party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d').date()
                     current_date = (datetime.now() + timedelta(hours=9)).date()
-                    days_diff = (current_date - last_party_date).days
+                    days_diff = (current_date - party_date).days
                     if days_diff == 1:
                         return "어제 함께 식사"
                     elif days_diff <= 7:
@@ -3968,22 +3942,7 @@ def get_smart_recommendations():
                 print(f"Error calculating last dining together: {e}")
                 return "처음 만나는 동료"
 
-        def create_group_key(recommendation):
-            """그룹의 고유 키를 생성하는 함수"""
-            date = recommendation['proposed_date']
-            member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
-            return f"{date}_{','.join(member_ids)}"
-
-        # selected_date 파라미터 처리
-        target_date = request.args.get('selected_date')
-        if not target_date:
-            # selected_date가 없으면 기본 날짜 사용
-            target_date = available_dates[0] if available_dates else None
-        
-        if not target_date:
-            return jsonify([])
-        
-        print(f"DEBUG: Processing target date: {target_date}")
+        print(f"DEBUG: Processing target date: {selected_date}")
         print(f"DEBUG: Employee ID: {employee_id}")
         
         # 해당 날짜에 사용 가능한 사용자 조회
@@ -3992,42 +3951,44 @@ def get_smart_recommendations():
                 getattr(User, 'employee_id') != employee_id,
                 ~db.session.query(Party).filter(
                     and_(
-                        getattr(Party, 'party_date') == target_date,
+                        getattr(Party, 'party_date') == selected_date,
                         or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
                             getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
                     )
                 ).exists(),
                 ~db.session.query(PersonalSchedule).filter(
                     and_(
-                        getattr(PersonalSchedule, 'schedule_date') == target_date,
+                        getattr(PersonalSchedule, 'schedule_date') == selected_date,
                         getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
                     )
                 ).exists()
             )
         ).all()
         
-        print(f"DEBUG: Available users count for {target_date}: {len(available_users)}")
+        print(f"DEBUG: Available users count for {selected_date}: {len(available_users)}")
         if not available_users:
-            print(f"DEBUG: No available users found for date {target_date}")
+            print(f"DEBUG: No available users found for date {selected_date}")
             return jsonify([])
         
-        # 사용자 점수 계산 (랜덤 요소 제거로 일관된 결과)
+        # 사용자 점수 계산 (완전히 결정적)
         scored_users = []
         for user in available_users:
             preference_score = calculate_compatibility_score(requester, user)
             pattern_score = calculate_pattern_score(requester, user)
-            # 랜덤 요소 제거하여 항상 같은 결과
-            total_score = preference_score*0.7 + pattern_score*0.3
+            # 완전히 결정적 점수 (랜덤 요소 완전 제거)
+            total_score = preference_score + pattern_score
             scored_users.append((user, total_score))
+        
+        # 점수로 정렬 (높은 점수 순)
         scored_users.sort(key=lambda x: x[1], reverse=True)
         
-        # 랜덤런치는 기본적으로 4인 1조 (나 + 3명 추천)
+        # 정확히 10개 그룹 생성 (완전히 결정적)
         all_groups = []
         
-        # 우선 3명 그룹 생성 (기본)
-        for i in range(len(scored_users)):
-            for j in range(i + 1, len(scored_users)):
-                for k in range(j + 1, len(scored_users)):
+        # 3명 그룹 우선 생성 (정확히 10개)
+        for i in range(min(10, len(scored_users) // 3)):
+            for j in range(i + 1, min(i + 4, len(scored_users))):
+                for k in range(j + 1, min(j + 4, len(scored_users))):
                     if len(all_groups) >= 10:
                         break
                     group = [scored_users[i], scored_users[j], scored_users[k]]
@@ -4037,8 +3998,8 @@ def get_smart_recommendations():
             if len(all_groups) >= 10:
                 break
         
-        # 3명 그룹이 부족하면 2명 그룹 생성
-        if len(all_groups) < 10 and len(scored_users) >= 2:
+        # 3명 그룹이 부족하면 2명 그룹으로 채움
+        if len(all_groups) < 10:
             for i in range(len(scored_users)):
                 for j in range(i + 1, len(scored_users)):
                     if len(all_groups) >= 10:
@@ -4048,18 +4009,18 @@ def get_smart_recommendations():
                 if len(all_groups) >= 10:
                     break
         
-        # 2명 그룹도 부족하면 1명 그룹 생성
-        if len(all_groups) < 10 and len(scored_users) >= 1:
+        # 2명 그룹도 부족하면 1명 그룹으로 채움
+        if len(all_groups) < 10:
             for i in range(len(scored_users)):
                 if len(all_groups) >= 10:
                     break
                 group = [scored_users[i]]
                 all_groups.append(group)
         
-        # 그룹을 일관되게 정렬하고 최대 10개로 제한 (랜덤 제거)
+        # 정확히 10개로 제한
         all_groups = all_groups[:10]
         
-        print(f"DEBUG: Created {len(all_groups)} groups for date {target_date}")
+        print(f"DEBUG: Created {len(all_groups)} groups for date {selected_date}")
         
         for group_idx, selected_group in enumerate(all_groups):
             group_members = []
@@ -4075,43 +4036,23 @@ def get_smart_recommendations():
                 })
             if group_members:
                 all_recommendations.append({
-                    "proposed_date": target_date,
+                    "proposed_date": selected_date,
                     "recommended_group": group_members
                 })
-                print(f"DEBUG: Created group {len(all_recommendations)} for date {target_date}")
-
-        
-        # 중복 제거 로직 추가
-        seen_groups = set()
-        unique_recommendations = []
-        
-        for recommendation in all_recommendations:
-            group_key = create_group_key(recommendation)
-            if group_key not in seen_groups:
-                seen_groups.add(group_key)
-                unique_recommendations.append(recommendation)
-        
-        all_recommendations = unique_recommendations
-        
-        # 그룹이 100개 미만이면 랜덤하게 복제해서 100개로 맞춤 (중복 제거 후)
-        if len(all_recommendations) < 100 and all_recommendations:
-            while len(all_recommendations) < 100:
-                all_recommendations.append(random.choice(all_recommendations))
-        all_recommendations = all_recommendations[:100]
-        random.shuffle(all_recommendations)
+                print(f"DEBUG: Created group {len(all_recommendations)} for date {selected_date}")
         
         # 페이지네이션 적용
-        total_count = len(all_recommendations)
+        limit = int(request.args.get('limit', 10))
+        offset = int(request.args.get('offset', 0))
         paginated_recommendations = all_recommendations[offset:offset + limit]
         
-        # 캐시 저장 비활성화
-        # SMART_LUNCH_CACHE[employee_id] = all_recommendations
-        
-        # 프론트엔드 호환성을 위해 기존 형식으로 반환
         return jsonify(paginated_recommendations)
+        
     except Exception as e:
         print(f"Error in smart recommendations: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+        
+
 
 # --- 새로운 투표 시스템 API ---
 
