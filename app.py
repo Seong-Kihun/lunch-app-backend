@@ -3891,6 +3891,10 @@ def get_smart_recommendations():
     employee_id = request.args.get('employee_id')
     selected_date = request.args.get('date')  # 새로운 파라미터
     
+    # 페이지네이션 파라미터 추가
+    limit = int(request.args.get('limit', 10))  # 기본값 10개
+    offset = int(request.args.get('offset', 0))  # 기본값 0부터
+    
     if not employee_id:
         return jsonify({'error': 'employee_id is required'}), 400
 
@@ -4063,9 +4067,21 @@ def get_smart_recommendations():
                 all_recommendations.append(random.choice(all_recommendations))
         all_recommendations = all_recommendations[:100]
         random.shuffle(all_recommendations)
+        
+        # 페이지네이션 적용
+        total_count = len(all_recommendations)
+        paginated_recommendations = all_recommendations[offset:offset + limit]
+        
         # 캐시 저장 비활성화
         # SMART_LUNCH_CACHE[employee_id] = all_recommendations
-        return jsonify(all_recommendations)
+        
+        return jsonify({
+            'recommendations': paginated_recommendations,
+            'total_count': total_count,
+            'has_more': offset + limit < total_count,
+            'current_offset': offset,
+            'current_limit': limit
+        })
     except Exception as e:
         print(f"Error in smart recommendations: {e}")
         return jsonify({'error': 'Internal server error'}), 500
