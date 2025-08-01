@@ -22,7 +22,9 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # --- 유틸리티 함수 ---
 def get_seoul_today():
-    return datetime.now().date()
+    """한국 시간의 오늘 날짜를 datetime.date 타입으로 반환"""
+    korean_time = datetime.now() + timedelta(hours=9)
+    return korean_time.date()
 
 def get_korean_time():
     """한국 시간을 반환하는 함수"""
@@ -3937,7 +3939,9 @@ def get_smart_recommendations():
                 ).order_by(desc(getattr(Party, 'party_date'))).first()
                 if last_party:
                     last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
-                    days_diff = (today - last_party_date).days
+                    # 타입 안전성을 위해 명시적으로 date 타입으로 변환
+                    today_date = today if isinstance(today, datetime.date) else today.date()
+                    days_diff = (today_date - last_party_date).days
                     if days_diff == 1:
                         return "어제 함께 식사"
                     elif days_diff <= 7:
