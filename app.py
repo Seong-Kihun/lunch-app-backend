@@ -3897,6 +3897,18 @@ def get_smart_recommendations():
     limit = int(request.args.get('limit', 10))  # 기본값 10개
     offset = int(request.args.get('offset', 0))  # 기본값 0부터
     
+    # 기본 날짜 설정: 가장 가까운 영업일
+    if not selected_date:
+        today = get_seoul_today()
+        # 오늘이 주말이면 다음 월요일로 설정
+        if today.weekday() >= 5:  # 토요일(5) 또는 일요일(6)
+            days_until_monday = (7 - today.weekday()) % 7
+            if days_until_monday == 0:
+                days_until_monday = 7
+            selected_date = (today + timedelta(days=days_until_monday)).strftime('%Y-%m-%d')
+        else:
+            selected_date = today.strftime('%Y-%m-%d')
+    
     if not employee_id:
         return jsonify({'error': 'employee_id is required'}), 400
 
@@ -3910,15 +3922,15 @@ def get_smart_recommendations():
     try:
         today = get_seoul_today()
         available_dates = []
-        for i in range(14):  # 2주 범위로 제한 (14일)
+        for i in range(30):  # 1개월 범위로 확장 (30일)
             check_date = today + timedelta(days=i)
             if check_date.weekday() >= 5:  # 주말 제외
                 continue
             date_string = check_date.strftime('%Y-%m-%d')
             available_dates.append(date_string)
 
-        # 각 날짜마다 최대 50개씩 그룹 생성
-        per_date = 50
+        # 각 날짜마다 최대 10개씩 그룹 생성 (성능 개선)
+        per_date = 10
         date_group_counts = [per_date] * len(available_dates)
 
         all_recommendations = []
@@ -3962,15 +3974,21 @@ def get_smart_recommendations():
             member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
             return f"{date}_{','.join(member_ids)}"
 
-        # 모든 날짜에 대해 그룹 생성
-        print(f"DEBUG: Total available dates: {len(available_dates)}")
-        print(f"DEBUG: First 10 available dates: {available_dates[:10]}")
-        print(f"DEBUG: Group counts for first 10 dates: {date_group_counts[:10]}")
-        for i, group_count in enumerate(date_group_counts):
-            if i >= len(available_dates):
-                break
-            selected_date = available_dates[i]
+        # 선택된 날짜의 그룹만 생성
+        if selected_date in available_dates:
+            print(f"DEBUG: Processing selected date {selected_date}")
+            # 선택된 날짜의 인덱스 찾기
+            date_index = available_dates.index(selected_date)
+            group_count = date_group_counts[date_index] if date_index < len(date_group_counts) else 10
             print(f"DEBUG: Processing date {selected_date} with {group_count} groups")
+        else:
+            # 선택된 날짜가 없으면 첫 번째 날짜 사용
+            selected_date = available_dates[0] if available_dates else None
+            group_count = 10
+            print(f"DEBUG: Selected date not found, using first available date: {selected_date}")
+        
+        if not selected_date:
+            return jsonify([])
             available_users = db.session.query(User).filter(
                 and_(
                     getattr(User, 'employee_id') != employee_id,
@@ -4005,37 +4023,37 @@ def get_smart_recommendations():
             for i in range(len(scored_users)):
                 for j in range(i + 1, len(scored_users)):
                     for k in range(j + 1, len(scored_users)):
-                        if len(all_groups) >= 50:
+                        if len(all_groups) >= 10:
                             break
                         group = [scored_users[i], scored_users[j], scored_users[k]]
                         all_groups.append(group)
-                    if len(all_groups) >= 50:
+                    if len(all_groups) >= 10:
                         break
-                if len(all_groups) >= 50:
+                if len(all_groups) >= 10:
                     break
             
             # 3명 그룹이 부족하면 2명 그룹 생성
-            if len(all_groups) < 50 and len(scored_users) >= 2:
+            if len(all_groups) < 10 and len(scored_users) >= 2:
                 for i in range(len(scored_users)):
                     for j in range(i + 1, len(scored_users)):
-                        if len(all_groups) >= 50:
+                        if len(all_groups) >= 10:
                             break
                         group = [scored_users[i], scored_users[j]]
                         all_groups.append(group)
-                    if len(all_groups) >= 50:
+                    if len(all_groups) >= 10:
                         break
             
             # 2명 그룹도 부족하면 1명 그룹 생성
-            if len(all_groups) < 50 and len(scored_users) >= 1:
+            if len(all_groups) < 10 and len(scored_users) >= 1:
                 for i in range(len(scored_users)):
-                    if len(all_groups) >= 50:
+                    if len(all_groups) >= 10:
                         break
                     group = [scored_users[i]]
                     all_groups.append(group)
             
-            # 그룹을 랜덤하게 섞고 최대 50개로 제한
+            # 그룹을 랜덤하게 섞고 최대 10개로 제한
             random.shuffle(all_groups)
-            all_groups = all_groups[:50]
+            all_groups = all_groups[:10]
             
             for group_idx, selected_group in enumerate(all_groups):
                 group_members = []
