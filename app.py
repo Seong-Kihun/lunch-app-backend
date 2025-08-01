@@ -3890,7 +3890,8 @@ def calculate_pattern_score(requester, user):
 @app.route('/proposals/smart-recommendations', methods=['GET'])
 def get_smart_recommendations():
     employee_id = request.args.get('employee_id')
-    selected_date = request.args.get('selected_date')  # 클릭한 날짜
+    # 여러 파라미터 이름 지원 (프론트엔드 호환성)
+    selected_date = request.args.get('selected_date') or request.args.get('date') or request.args.get('target_date')
     
     # 디버깅을 위한 로그 추가
     print(f"DEBUG: Received request with employee_id={employee_id}, selected_date={selected_date}")
