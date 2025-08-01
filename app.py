@@ -3974,104 +3974,109 @@ def get_smart_recommendations():
             member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
             return f"{date}_{','.join(member_ids)}"
 
-        # 모든 날짜에 그룹 생성
-        for date_idx, current_date in enumerate(available_dates):
-            print(f"DEBUG: Processing date {current_date}")
-            
-            # 해당 날짜에 사용 가능한 사용자 조회
-            available_users = db.session.query(User).filter(
-                and_(
-                    getattr(User, 'employee_id') != employee_id,
-                    ~db.session.query(Party).filter(
-                        and_(
-                            getattr(Party, 'party_date') == current_date,
-                            or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
-                                getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
-                        )
-                    ).exists(),
-                    ~db.session.query(PersonalSchedule).filter(
-                        and_(
-                            getattr(PersonalSchedule, 'schedule_date') == current_date,
-                            getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
-                        )
-                    ).exists()
-                )
-            ).all()
-            
-            print(f"DEBUG: Available users count for {current_date}: {len(available_users)}")
-            if not available_users:
-                print(f"DEBUG: No available users found for date {current_date}")
-                continue
-            
-            # 사용자 점수 계산
-            scored_users = []
-            for user in available_users:
-                preference_score = calculate_compatibility_score(requester, user)
-                pattern_score = calculate_pattern_score(requester, user)
-                random_score = random.random()
-                total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
-                scored_users.append((user, total_score))
-            scored_users.sort(key=lambda x: x[1], reverse=True)
-            
-            # 랜덤런치는 기본적으로 4인 1조 (나 + 3명 추천)
-            all_groups = []
-            
-            # 우선 3명 그룹 생성 (기본)
-            for i in range(len(scored_users)):
-                for j in range(i + 1, len(scored_users)):
-                    for k in range(j + 1, len(scored_users)):
-                        if len(all_groups) >= 10:
-                            break
-                        group = [scored_users[i], scored_users[j], scored_users[k]]
-                        all_groups.append(group)
+        # 선택된 날짜가 있으면 해당 날짜만, 없으면 기본 날짜 사용
+        target_date = selected_date if selected_date else available_dates[0] if available_dates else None
+        
+        if not target_date:
+            return jsonify([])
+        
+        print(f"DEBUG: Processing target date: {target_date}")
+        print(f"DEBUG: Employee ID: {employee_id}")
+        
+        # 해당 날짜에 사용 가능한 사용자 조회
+        available_users = db.session.query(User).filter(
+            and_(
+                getattr(User, 'employee_id') != employee_id,
+                ~db.session.query(Party).filter(
+                    and_(
+                        getattr(Party, 'party_date') == target_date,
+                        or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
+                            getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
+                    )
+                ).exists(),
+                ~db.session.query(PersonalSchedule).filter(
+                    and_(
+                        getattr(PersonalSchedule, 'schedule_date') == target_date,
+                        getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
+                    )
+                ).exists()
+            )
+        ).all()
+        
+        print(f"DEBUG: Available users count for {target_date}: {len(available_users)}")
+        if not available_users:
+            print(f"DEBUG: No available users found for date {target_date}")
+            return jsonify([])
+        
+        # 사용자 점수 계산
+        scored_users = []
+        for user in available_users:
+            preference_score = calculate_compatibility_score(requester, user)
+            pattern_score = calculate_pattern_score(requester, user)
+            random_score = random.random()
+            total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
+            scored_users.append((user, total_score))
+        scored_users.sort(key=lambda x: x[1], reverse=True)
+        
+        # 랜덤런치는 기본적으로 4인 1조 (나 + 3명 추천)
+        all_groups = []
+        
+        # 우선 3명 그룹 생성 (기본)
+        for i in range(len(scored_users)):
+            for j in range(i + 1, len(scored_users)):
+                for k in range(j + 1, len(scored_users)):
                     if len(all_groups) >= 10:
                         break
+                    group = [scored_users[i], scored_users[j], scored_users[k]]
+                    all_groups.append(group)
                 if len(all_groups) >= 10:
                     break
-            
-            # 3명 그룹이 부족하면 2명 그룹 생성
-            if len(all_groups) < 10 and len(scored_users) >= 2:
-                for i in range(len(scored_users)):
-                    for j in range(i + 1, len(scored_users)):
-                        if len(all_groups) >= 10:
-                            break
-                        group = [scored_users[i], scored_users[j]]
-                        all_groups.append(group)
+            if len(all_groups) >= 10:
+                break
+        
+        # 3명 그룹이 부족하면 2명 그룹 생성
+        if len(all_groups) < 10 and len(scored_users) >= 2:
+            for i in range(len(scored_users)):
+                for j in range(i + 1, len(scored_users)):
                     if len(all_groups) >= 10:
                         break
-            
-            # 2명 그룹도 부족하면 1명 그룹 생성
-            if len(all_groups) < 10 and len(scored_users) >= 1:
-                for i in range(len(scored_users)):
-                    if len(all_groups) >= 10:
-                        break
-                    group = [scored_users[i]]
+                    group = [scored_users[i], scored_users[j]]
                     all_groups.append(group)
-            
-            # 그룹을 랜덤하게 섞고 최대 10개로 제한
-            random.shuffle(all_groups)
-            all_groups = all_groups[:10]
-            
-            print(f"DEBUG: Created {len(all_groups)} groups for date {current_date}")
-            
-            for group_idx, selected_group in enumerate(all_groups):
-                group_members = []
-                for user, score in selected_group:
-                    # 마지막으로 함께 점심 먹은 시간 계산
-                    last_dining = get_last_dining_together(employee_id, user.employee_id)
-                    
-                    group_members.append({
-                        "nickname": user.nickname,
-                        "lunch_preference": user.lunch_preference,
-                        "employee_id": user.employee_id,
-                        "last_dining_together": last_dining
-                    })
-                if group_members:
-                    all_recommendations.append({
-                        "proposed_date": current_date,
-                        "recommended_group": group_members
-                    })
-                    print(f"DEBUG: Created group {len(all_recommendations)} for date {current_date}")
+                if len(all_groups) >= 10:
+                    break
+        
+        # 2명 그룹도 부족하면 1명 그룹 생성
+        if len(all_groups) < 10 and len(scored_users) >= 1:
+            for i in range(len(scored_users)):
+                if len(all_groups) >= 10:
+                    break
+                group = [scored_users[i]]
+                all_groups.append(group)
+        
+        # 그룹을 랜덤하게 섞고 최대 10개로 제한
+        random.shuffle(all_groups)
+        all_groups = all_groups[:10]
+        
+        print(f"DEBUG: Created {len(all_groups)} groups for date {target_date}")
+        
+        for group_idx, selected_group in enumerate(all_groups):
+            group_members = []
+            for user, score in selected_group:
+                # 마지막으로 함께 점심 먹은 시간 계산
+                last_dining = get_last_dining_together(employee_id, user.employee_id)
+                
+                group_members.append({
+                    "nickname": user.nickname,
+                    "lunch_preference": user.lunch_preference,
+                    "employee_id": user.employee_id,
+                    "last_dining_together": last_dining
+                })
+            if group_members:
+                all_recommendations.append({
+                    "proposed_date": target_date,
+                    "recommended_group": group_members
+                })
+                print(f"DEBUG: Created group {len(all_recommendations)} for date {target_date}")
 
         
         # 중복 제거 로직 추가
