@@ -3848,7 +3848,7 @@ def get_last_dining_together(user1_id, user2_id):
         ).order_by(desc(Party.party_date)).first()
         
         if latest_party:
-            party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d')
+            party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d').date()
             today = get_seoul_today()
             days_diff = (today - party_date).days
             
