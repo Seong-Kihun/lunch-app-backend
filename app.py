@@ -3974,8 +3974,11 @@ def get_smart_recommendations():
             member_ids = sorted([member['employee_id'] for member in recommendation['recommended_group']])
             return f"{date}_{','.join(member_ids)}"
 
-        # 선택된 날짜가 있으면 해당 날짜만, 없으면 기본 날짜 사용
-        target_date = selected_date if selected_date else available_dates[0] if available_dates else None
+        # selected_date 파라미터 처리
+        target_date = request.args.get('selected_date')
+        if not target_date:
+            # selected_date가 없으면 기본 날짜 사용
+            target_date = available_dates[0] if available_dates else None
         
         if not target_date:
             return jsonify([])
@@ -4008,13 +4011,13 @@ def get_smart_recommendations():
             print(f"DEBUG: No available users found for date {target_date}")
             return jsonify([])
         
-        # 사용자 점수 계산
+        # 사용자 점수 계산 (랜덤 요소 제거로 일관된 결과)
         scored_users = []
         for user in available_users:
             preference_score = calculate_compatibility_score(requester, user)
             pattern_score = calculate_pattern_score(requester, user)
-            random_score = random.random()
-            total_score = preference_score*0.6 + pattern_score*0.3 + random_score*0.1
+            # 랜덤 요소 제거하여 항상 같은 결과
+            total_score = preference_score*0.7 + pattern_score*0.3
             scored_users.append((user, total_score))
         scored_users.sort(key=lambda x: x[1], reverse=True)
         
@@ -4053,8 +4056,7 @@ def get_smart_recommendations():
                 group = [scored_users[i]]
                 all_groups.append(group)
         
-        # 그룹을 랜덤하게 섞고 최대 10개로 제한
-        random.shuffle(all_groups)
+        # 그룹을 일관되게 정렬하고 최대 10개로 제한 (랜덤 제거)
         all_groups = all_groups[:10]
         
         print(f"DEBUG: Created {len(all_groups)} groups for date {target_date}")
