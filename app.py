@@ -2283,10 +2283,10 @@ def accept_proposal(proposal_id):
 @app.route('/proposals/<int:proposal_id>/cancel', methods=['POST'])
 def cancel_proposal(proposal_id):
     data = request.get_json() or {}
-    user_id = data.get('user_id')
+    user_id = data.get('user_id') or data.get('employee_id')
     
     if not user_id:
-        return jsonify({'message': 'user_id가 필요합니다.'}), 400
+        return jsonify({'message': 'user_id 또는 employee_id가 필요합니다.'}), 400
     
     proposal = LunchProposal.query.get(proposal_id)
     if not proposal:
