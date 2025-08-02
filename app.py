@@ -20,11 +20,142 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
+# 추천 그룹 캐시 (사용자별, 날짜별)
+RECOMMENDATION_CACHE = {}
+CACHE_GENERATION_DATE = None
+
 # --- 유틸리티 함수 ---
 def get_seoul_today():
     """한국 시간의 오늘 날짜를 datetime.date 타입으로 반환"""
     korean_time = datetime.now() + timedelta(hours=9)
     return korean_time.date()
+
+def generate_recommendation_cache():
+    """2주간의 추천 그룹을 미리 생성하여 캐시에 저장"""
+    global RECOMMENDATION_CACHE, CACHE_GENERATION_DATE
+    
+    today = get_seoul_today()
+    current_date_str = today.strftime('%Y-%m-%d')
+    
+    # 이미 오늘 생성된 캐시가 있으면 재사용
+    if CACHE_GENERATION_DATE == current_date_str and RECOMMENDATION_CACHE:
+        print(f"DEBUG: Using existing cache for {current_date_str}")
+        return
+    
+    print(f"DEBUG: Generating recommendation cache for 2 weeks starting from {current_date_str}")
+    RECOMMENDATION_CACHE = {}
+    CACHE_GENERATION_DATE = current_date_str
+    
+    # 모든 사용자 조회
+    all_users = db.session.query(User).all()
+    
+    # 2주간 (14일) 각 날짜에 대해 추천 그룹 생성
+    for day_offset in range(14):
+        target_date = today + timedelta(days=day_offset)
+        target_date_str = target_date.strftime('%Y-%m-%d')
+        
+        # 주말 제외
+        if target_date.weekday() >= 5:
+            continue
+            
+        print(f"DEBUG: Generating recommendations for {target_date_str}")
+        
+        # 각 사용자에 대해 추천 그룹 생성
+        for user in all_users:
+            employee_id = user.employee_id
+            
+            # 해당 날짜에 사용 가능한 사용자 조회
+            available_users = db.session.query(User).filter(
+                and_(
+                    getattr(User, 'employee_id') != employee_id,
+                    ~db.session.query(Party).filter(
+                        and_(
+                            getattr(Party, 'party_date') == target_date_str,
+                            or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
+                                getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
+                        )
+                    ).exists(),
+                    ~db.session.query(PersonalSchedule).filter(
+                        and_(
+                            getattr(PersonalSchedule, 'schedule_date') == target_date_str,
+                            getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
+                        )
+                    ).exists()
+                )
+            ).all()
+            
+            if not available_users:
+                continue
+                
+            # 사용자 점수 계산 (완전히 결정적)
+            scored_users = []
+            for available_user in available_users:
+                preference_score = calculate_compatibility_score(user, available_user)
+                pattern_score = calculate_pattern_score(user, available_user)
+                total_score = preference_score + pattern_score
+                scored_users.append((available_user, total_score))
+            
+            # 점수로 정렬 (높은 점수 순)
+            scored_users.sort(key=lambda x: x[1], reverse=True)
+            
+            # 정확히 10개 그룹 생성
+            all_groups = []
+            
+            # 3명 그룹 우선 생성 (정확히 10개)
+            for i in range(len(scored_users)):
+                for j in range(i + 1, len(scored_users)):
+                    for k in range(j + 1, len(scored_users)):
+                        if len(all_groups) >= 10:
+                            break
+                        group = [scored_users[i][0], scored_users[j][0], scored_users[k][0]]
+                        all_groups.append(group)
+                    if len(all_groups) >= 10:
+                        break
+                if len(all_groups) >= 10:
+                    break
+            
+            # 3명 그룹이 부족하면 2명 그룹 생성
+            if len(all_groups) < 10 and len(scored_users) >= 2:
+                for i in range(len(scored_users)):
+                    for j in range(i + 1, len(scored_users)):
+                        if len(all_groups) >= 10:
+                            break
+                        group = [scored_users[i][0], scored_users[j][0]]
+                        all_groups.append(group)
+                    if len(all_groups) >= 10:
+                        break
+            
+            # 2명 그룹도 부족하면 1명 그룹 생성
+            if len(all_groups) < 10 and len(scored_users) >= 1:
+                for i in range(len(scored_users)):
+                    if len(all_groups) >= 10:
+                        break
+                    group = [scored_users[i][0]]
+                    all_groups.append(group)
+            
+            # 캐시에 저장할 형태로 변환
+            recommendations = []
+            for group_idx, group in enumerate(all_groups[:10]):
+                recommendation = {
+                    'proposed_date': target_date_str,
+                    'recommended_group': [
+                        {
+                            'employee_id': member.employee_id,
+                            'nickname': member.nickname or '익명',
+                            'lunch_preference': member.lunch_preference or '',
+                            'main_dish_genre': member.main_dish_genre or '',
+                            'last_dining_together': get_last_dining_together(employee_id, member.employee_id)
+                        }
+                        for member in group
+                    ]
+                }
+                recommendations.append(recommendation)
+            
+            # 캐시에 저장
+            cache_key = f"{employee_id}_{target_date_str}"
+            RECOMMENDATION_CACHE[cache_key] = recommendations
+    
+    print(f"DEBUG: Cache generation completed. Total cache entries: {len(RECOMMENDATION_CACHE)}")
 
 def get_korean_time():
     """한국 시간을 반환하는 함수"""
@@ -589,6 +720,11 @@ def create_tables_and_init_data():
             
             db.session.commit()
             setattr(app, '_db_initialized', True)
+            
+            # 앱 시작 시 추천 그룹 캐시 생성
+            print("DEBUG: Initializing recommendation cache...")
+            generate_recommendation_cache()
+            print("DEBUG: Recommendation cache initialization completed.")
 
 # --- API 엔드포인트 ---
 @app.route('/cafeteria/today', methods=['GET'])
@@ -3901,6 +4037,10 @@ def get_smart_recommendations():
         return jsonify({'error': 'employee_id is required'}), 400
 
     try:
+        # 캐시가 없으면 먼저 생성
+        if not RECOMMENDATION_CACHE:
+            generate_recommendation_cache()
+        
         # 기본 날짜 설정: 가장 가까운 영업일
         if not selected_date:
             today = get_seoul_today()
@@ -3913,145 +4053,14 @@ def get_smart_recommendations():
             else:
                 selected_date = today.strftime('%Y-%m-%d')
 
-        all_recommendations = []
-        requester = db.session.query(User).filter(getattr(User, 'employee_id') == employee_id).first()
-        if not requester:
-            return jsonify([])
-
-        def get_last_dining_together(user1_id, user2_id):
-            try:
-                latest_party = db.session.query(Party).filter(
-                    and_(
-                        or_(
-                            and_(getattr(Party, 'host_employee_id') == user1_id, getattr(Party, 'members_employee_ids').contains(user2_id)),
-                            and_(getattr(Party, 'host_employee_id') == user2_id, getattr(Party, 'members_employee_ids').contains(user1_id))
-                        ),
-                        getattr(Party, 'party_date') < selected_date
-                    )
-                ).order_by(desc(getattr(Party, 'party_date'))).first()
-                if latest_party:
-                    party_date = datetime.strptime(latest_party.party_date, '%Y-%m-%d').date()
-                    current_date = (datetime.now() + timedelta(hours=9)).date()
-                    days_diff = (current_date - party_date).days
-                    if days_diff == 1:
-                        return "어제 함께 식사"
-                    elif days_diff <= 7:
-                        return f"{days_diff}일 전 함께 식사"
-                    elif days_diff <= 30:
-                        return f"{days_diff//7}주 전 함께 식사"
-                    else:
-                        return "1달 이상 전"
-                else:
-                    return "처음 만나는 동료"
-            except Exception as e:
-                print(f"Error calculating last dining together: {e}")
-                return "처음 만나는 동료"
-
-        print(f"DEBUG: Processing target date: {selected_date}")
-        print(f"DEBUG: Employee ID: {employee_id}")
+        # 캐시에서 추천 그룹 조회
+        cache_key = f"{employee_id}_{selected_date}"
+        if cache_key in RECOMMENDATION_CACHE:
+            print(f"DEBUG: Returning cached recommendations for {cache_key}")
+            return jsonify(RECOMMENDATION_CACHE[cache_key])
         
-        # 해당 날짜에 사용 가능한 사용자 조회
-        available_users = db.session.query(User).filter(
-            and_(
-                getattr(User, 'employee_id') != employee_id,
-                ~db.session.query(Party).filter(
-                    and_(
-                        getattr(Party, 'party_date') == selected_date,
-                        or_(getattr(Party, 'host_employee_id') == getattr(User, 'employee_id'),
-                            getattr(Party, 'members_employee_ids').contains(getattr(User, 'employee_id')))
-                    )
-                ).exists(),
-                ~db.session.query(PersonalSchedule).filter(
-                    and_(
-                        getattr(PersonalSchedule, 'schedule_date') == selected_date,
-                        getattr(PersonalSchedule, 'employee_id') == getattr(User, 'employee_id')
-                    )
-                ).exists()
-            )
-        ).all()
-        
-        print(f"DEBUG: Available users count for {selected_date}: {len(available_users)}")
-        if not available_users:
-            print(f"DEBUG: No available users found for date {selected_date}")
-            return jsonify([])
-        
-        # 사용자 점수 계산 (완전히 결정적)
-        scored_users = []
-        for user in available_users:
-            preference_score = calculate_compatibility_score(requester, user)
-            pattern_score = calculate_pattern_score(requester, user)
-            # 완전히 결정적 점수 (랜덤 요소 완전 제거)
-            total_score = preference_score + pattern_score
-            scored_users.append((user, total_score))
-        
-        # 점수로 정렬 (높은 점수 순)
-        scored_users.sort(key=lambda x: x[1], reverse=True)
-        
-        # 정확히 10개 그룹 생성 (완전히 결정적)
-        all_groups = []
-        
-        # 3명 그룹 우선 생성 (정확히 10개)
-        for i in range(min(10, len(scored_users) // 3)):
-            for j in range(i + 1, min(i + 4, len(scored_users))):
-                for k in range(j + 1, min(j + 4, len(scored_users))):
-                    if len(all_groups) >= 10:
-                        break
-                    group = [scored_users[i], scored_users[j], scored_users[k]]
-                    all_groups.append(group)
-                if len(all_groups) >= 10:
-                    break
-            if len(all_groups) >= 10:
-                break
-        
-        # 3명 그룹이 부족하면 2명 그룹으로 채움
-        if len(all_groups) < 10:
-            for i in range(len(scored_users)):
-                for j in range(i + 1, len(scored_users)):
-                    if len(all_groups) >= 10:
-                        break
-                    group = [scored_users[i], scored_users[j]]
-                    all_groups.append(group)
-                if len(all_groups) >= 10:
-                    break
-        
-        # 2명 그룹도 부족하면 1명 그룹으로 채움
-        if len(all_groups) < 10:
-            for i in range(len(scored_users)):
-                if len(all_groups) >= 10:
-                    break
-                group = [scored_users[i]]
-                all_groups.append(group)
-        
-        # 정확히 10개로 제한
-        all_groups = all_groups[:10]
-        
-        print(f"DEBUG: Created {len(all_groups)} groups for date {selected_date}")
-        
-        for group_idx, selected_group in enumerate(all_groups):
-            group_members = []
-            for user, score in selected_group:
-                # 마지막으로 함께 점심 먹은 시간 계산
-                last_dining = get_last_dining_together(employee_id, user.employee_id)
-                
-                group_members.append({
-                    "nickname": user.nickname,
-                    "lunch_preference": user.lunch_preference,
-                    "employee_id": user.employee_id,
-                    "last_dining_together": last_dining
-                })
-            if group_members:
-                all_recommendations.append({
-                    "proposed_date": selected_date,
-                    "recommended_group": group_members
-                })
-                print(f"DEBUG: Created group {len(all_recommendations)} for date {selected_date}")
-        
-        # 페이지네이션 적용
-        limit = int(request.args.get('limit', 10))
-        offset = int(request.args.get('offset', 0))
-        paginated_recommendations = all_recommendations[offset:offset + limit]
-        
-        return jsonify(paginated_recommendations)
+        print(f"DEBUG: No cache found for {cache_key}, returning empty list")
+        return jsonify([])
         
     except Exception as e:
         print(f"Error in smart recommendations: {e}")
