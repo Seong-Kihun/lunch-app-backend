@@ -31,7 +31,7 @@ def get_seoul_today():
     return korean_time.date()
 
 def generate_recommendation_cache():
-    """2주간의 추천 그룹을 미리 생성하여 캐시에 저장"""
+    """1달간의 추천 그룹을 미리 생성하여 캐시에 저장"""
     global RECOMMENDATION_CACHE, CACHE_GENERATION_DATE
     
     today = get_seoul_today()
@@ -42,15 +42,15 @@ def generate_recommendation_cache():
         print(f"DEBUG: Using existing cache for {current_date_str}")
         return
     
-    print(f"DEBUG: Generating recommendation cache for 2 weeks starting from {current_date_str}")
+    print(f"DEBUG: Generating recommendation cache for 1 month starting from {current_date_str}")
     RECOMMENDATION_CACHE = {}
     CACHE_GENERATION_DATE = current_date_str
     
     # 모든 사용자 조회
     all_users = db.session.query(User).all()
     
-    # 2주간 (14일) 각 날짜에 대해 추천 그룹 생성
-    for day_offset in range(14):
+    # 1달간 (30일) 각 날짜에 대해 추천 그룹 생성
+    for day_offset in range(30):
         target_date = today + timedelta(days=day_offset)
         target_date_str = target_date.strftime('%Y-%m-%d')
         
@@ -85,6 +85,7 @@ def generate_recommendation_cache():
             ).all()
             
             if not available_users:
+                print(f"DEBUG: No available users for {employee_id} on {target_date_str}")
                 continue
                 
             # 사용자 점수 계산 (완전히 결정적)
@@ -154,6 +155,7 @@ def generate_recommendation_cache():
             # 캐시에 저장
             cache_key = f"{employee_id}_{target_date_str}"
             RECOMMENDATION_CACHE[cache_key] = recommendations
+            print(f"DEBUG: Created {len(recommendations)} recommendations for {cache_key}")
     
     print(f"DEBUG: Cache generation completed. Total cache entries: {len(RECOMMENDATION_CACHE)}")
 
