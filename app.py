@@ -88,12 +88,14 @@ def generate_recommendation_cache():
                 print(f"DEBUG: No available users for {employee_id} on {target_date_str}")
                 continue
                 
-            # 사용자 점수 계산 (완전히 결정적)
+            # 사용자 점수 계산 (랜덤 요소 포함)
             scored_users = []
             for available_user in available_users:
                 preference_score = calculate_compatibility_score(user, available_user)
                 pattern_score = calculate_pattern_score(user, available_user)
-                total_score = preference_score + pattern_score
+                # 랜덤 점수 추가 (0~100 범위)
+                random_score = random.uniform(0, 100)
+                total_score = preference_score + pattern_score + random_score
                 scored_users.append((available_user, total_score))
             
             # 점수로 정렬 (높은 점수 순)
