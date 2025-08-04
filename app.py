@@ -2402,13 +2402,21 @@ def get_my_chats(employee_id):
             seen_chat_room_ids.add(chat_room.id)
         
         if chat_room and chat_room.type in ['group', 'friend']:
-            # 마지막 메시지 가져오기 (투표로 생성된 채팅방의 경우 chat_type='custom' 사용)
+            # 채팅방 타입에 따라 올바른 chat_type 결정
+            if chat_room.type == 'group':
+                chat_type = 'group'
+            elif chat_room.type == 'friend':
+                chat_type = 'custom'
+            else:
+                chat_type = 'custom'  # 기본값
+            
+            # 마지막 메시지 가져오기 (실제 채팅방 타입에 맞는 chat_type 사용)
             last_message = ChatMessage.query.filter_by(
-                chat_type='custom', 
+                chat_type=chat_type, 
                 chat_id=chat_room.id
             ).order_by(desc(ChatMessage.created_at)).first()
             
-            print(f"=== DEBUG: chat_type='custom'으로 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
+            print(f"=== DEBUG: chat_type='{chat_type}'으로 검색한 마지막 메시지: {last_message.message if last_message else 'None'} ===")
             
             # 마지막 메시지가 없으면 다른 chat_type으로도 시도
             if not last_message:
@@ -2423,9 +2431,17 @@ def get_my_chats(employee_id):
             if len(message_preview) > 15:
                 message_preview = message_preview[:15] + '...'
             
+            # 채팅방 타입에 따라 올바른 chat_type 결정
+            if chat_room.type == 'group':
+                chat_type = 'group'
+            elif chat_room.type == 'friend':
+                chat_type = 'custom'
+            else:
+                chat_type = 'custom'  # 기본값
+            
             custom_chat_list.append({
                 'id': chat_room.id, 
-                'type': 'custom', 
+                'type': chat_type, 
                 'title': chat_room.name or '새로운 채팅방',
                 'subtitle': message_preview,
                 'last_message': last_message.message if last_message else None,
