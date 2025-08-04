@@ -2705,12 +2705,12 @@ def send_chat_message():
     if not user:
         return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
     
-    # 투표로 생성된 채팅방인지 확인 (ChatRoom이 group 타입이고 해당 chat_id를 가진 경우)
+    # 채팅방 타입에 따라 실제 저장할 chat_type 결정
     chat_room = ChatRoom.query.get(chat_id)
     if chat_room and chat_room.type == 'group':
-        # 투표로 생성된 채팅방의 경우 chat_type을 'custom'으로 강제 설정
-        actual_chat_type = 'custom'
-        print(f"=== DEBUG: 투표로 생성된 채팅방 감지 - chat_id: {chat_id}, 강제 chat_type: custom ===")
+        # group 타입 채팅방의 경우 실제로는 'group'으로 저장
+        actual_chat_type = 'group'
+        print(f"=== DEBUG: group 타입 채팅방 감지 - chat_id: {chat_id}, 실제 chat_type: group ===")
     else:
         actual_chat_type = chat_type
     
