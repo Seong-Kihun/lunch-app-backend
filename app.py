@@ -2471,17 +2471,12 @@ def get_my_chats(employee_id):
             if len(message_preview) > 15:
                 message_preview = message_preview[:15] + '...'
             
-            # 채팅방 타입에 따라 올바른 chat_type 결정
-            if chat_room.type == 'group':
-                chat_type = 'group'
-            elif chat_room.type == 'friend':
-                chat_type = 'custom'
-            else:
-                chat_type = 'custom'  # 기본값
+            # 프론트엔드 호환성을 위해 type='group'인 채팅방을 'custom'으로 반환
+            frontend_type = 'custom' if chat_room.type == 'group' else chat_type
             
             custom_chat_list.append({
                 'id': chat_room.id, 
-                'type': chat_type, 
+                'type': frontend_type, 
                 'title': chat_room.name or '새로운 채팅방',
                 'subtitle': message_preview,
                 'last_message': last_message.message if last_message else None,
@@ -2593,7 +2588,15 @@ def get_user_preferences(employee_id):
 def get_chat_messages(chat_type, chat_id):
     print(f"=== DEBUG: 채팅 메시지 조회 - chat_type: {chat_type}, chat_id: {chat_id} ===")
     
-    messages = ChatMessage.query.filter_by(chat_type=chat_type, chat_id=chat_id).order_by(ChatMessage.created_at).all()
+    # 프론트엔드 호환성을 위해 chat_type='custom'인 경우 실제 저장된 chat_type 확인
+    actual_chat_type = chat_type
+    if chat_type == 'custom':
+        # ChatRoom에서 실제 타입 확인
+        chat_room = ChatRoom.query.get(chat_id)
+        if chat_room and chat_room.type == 'group':
+            actual_chat_type = 'group'
+    
+    messages = ChatMessage.query.filter_by(chat_type=actual_chat_type, chat_id=chat_id).order_by(ChatMessage.created_at).all()
     print(f"=== DEBUG: 조회된 메시지 수: {len(messages)} ===")
     
     for msg in messages:
