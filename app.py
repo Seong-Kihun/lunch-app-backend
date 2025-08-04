@@ -4146,6 +4146,27 @@ def create_voting_session():
                 participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
                 db.session.add(participant)
                 print(f"=== DEBUG: 참여자 추가 - user_id: {user_id} ===")
+        else:
+            # 기존 채팅방이 존재하는지 확인
+            chat_room = ChatRoom.query.get(chat_room_id)
+            if not chat_room:
+                print(f"=== DEBUG: 채팅방을 찾을 수 없음 - ID: {chat_room_id}, 새로 생성 ===")
+                # 채팅방이 존재하지 않으면 새로 생성
+                chat_room = ChatRoom(
+                    name=data['title'],
+                    type='custom'
+                )
+                db.session.add(chat_room)
+                db.session.flush()
+                chat_room_id = chat_room.id
+                
+                # 참여자들 추가
+                for user_id in participant_ids:
+                    participant = ChatParticipant(room_id=chat_room.id, user_id=user_id)
+                    db.session.add(participant)
+                    print(f"=== DEBUG: 참여자 추가 - user_id: {user_id} ===")
+            else:
+                print(f"=== DEBUG: 기존 채팅방 사용 - ID: {chat_room_id}, 이름: {chat_room.name} ===")
         
         # 새로운 투표 세션 생성
         voting_session = VotingSession(
