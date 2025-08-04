@@ -4128,6 +4128,7 @@ def create_voting_session():
         # 채팅방이 없는 경우 자동으로 생성
         chat_room_id = data['chat_room_id']
         print(f"=== DEBUG: 투표 세션 생성 - chat_room_id: {chat_room_id} ===")
+        print(f"=== DEBUG: 전체 요청 데이터: {data} ===")
         
         if chat_room_id == -1:
             # 새 채팅방 생성
@@ -4149,16 +4150,19 @@ def create_voting_session():
         else:
             # 기존 채팅방이 존재하는지 확인
             chat_room = ChatRoom.query.get(chat_room_id)
+            print(f"=== DEBUG: ChatRoom.query.get({chat_room_id}) 결과: {chat_room} ===")
+            
             if not chat_room:
                 print(f"=== DEBUG: 채팅방을 찾을 수 없음 - ID: {chat_room_id}, 새로 생성 ===")
                 # 채팅방이 존재하지 않으면 새로 생성
                 chat_room = ChatRoom(
                     name=data['title'],
-                    type='custom'
+                    type='group'  # create_chat_room API와 일치하도록 'group'으로 변경
                 )
                 db.session.add(chat_room)
                 db.session.flush()
                 chat_room_id = chat_room.id
+                print(f"=== DEBUG: 새로 생성된 채팅방 - ID: {chat_room_id}, 타입: {chat_room.type} ===")
                 
                 # 참여자들 추가
                 for user_id in participant_ids:
@@ -4166,7 +4170,7 @@ def create_voting_session():
                     db.session.add(participant)
                     print(f"=== DEBUG: 참여자 추가 - user_id: {user_id} ===")
             else:
-                print(f"=== DEBUG: 기존 채팅방 사용 - ID: {chat_room_id}, 이름: {chat_room.name} ===")
+                print(f"=== DEBUG: 기존 채팅방 사용 - ID: {chat_room_id}, 이름: {chat_room.name}, 타입: {chat_room.type} ===")
         
         # 새로운 투표 세션 생성
         voting_session = VotingSession(
@@ -4192,10 +4196,12 @@ def create_voting_session():
         korean_expires_at = voting_session.expires_at + timedelta(hours=9)
         system_message = f"📊 새로운 투표가 시작되었습니다!\n'{voting_session.title}'\n마감: {korean_expires_at.strftime('%m월 %d일 %H:%M')}\n\n이 메시지를 터치하여 투표에 참여하세요 👆"
         
-        print(f"=== DEBUG: 투표 메시지 생성 - chat_type: custom, chat_id: {chat_room_id} ===")
+        # 채팅방 타입에 따라 chat_type 결정
+        chat_type = chat_room.type  # 실제 채팅방 타입 사용
+        print(f"=== DEBUG: 투표 메시지 생성 - chat_type: {chat_type}, chat_id: {chat_room_id} ===")
         
         chat_message = ChatMessage(
-            chat_type='custom',
+            chat_type=chat_type,
             chat_id=chat_room_id,
             sender_employee_id='SYSTEM',
             sender_nickname='시스템',
@@ -4207,7 +4213,8 @@ def create_voting_session():
         print(f"=== DEBUG: 투표 메시지 내용: {system_message[:100]}... ===")
         
         # WebSocket으로 실시간 알림
-        room = f"custom_{chat_room_id}"
+        room = f"{chat_type}_{chat_room_id}"
+        print(f"=== DEBUG: WebSocket room: {room} ===")
         
         # 채팅 메시지 알림 (WebSocket을 통해 voting_session_id 전달)
         socketio.emit('new_message', {
@@ -4218,7 +4225,7 @@ def create_voting_session():
             'created_at': chat_message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             'message_type': 'voting_notification',
             'voting_session_id': voting_session.id,
-            'chat_type': 'custom',
+            'chat_type': chat_type,
             'chat_id': chat_room_id
         }, room=room)
         
@@ -4243,6 +4250,8 @@ def create_voting_session():
             db.session.add(notification)
         
         db.session.commit()
+        
+        print(f"=== DEBUG: 투표 세션 생성 완료 - ID: {voting_session.id}, 채팅방 ID: {chat_room_id} ===")
         
         return jsonify({
             'id': voting_session.id,
