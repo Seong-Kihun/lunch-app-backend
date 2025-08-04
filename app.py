@@ -2309,7 +2309,7 @@ def get_my_chats(employee_id):
     
     print(f"=== DEBUG: 채팅방 목록 조회 시작 (사용자: {employee_id}) ===")
     
-    # 파티 채팅방들
+    # 파티 채팅방들 (랜덤 런치 제외)
     party_chat_list = []
     joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
     
@@ -2321,6 +2321,10 @@ def get_my_chats(employee_id):
         if party.id in seen_party_ids:
             continue
         seen_party_ids.add(party.id)
+        
+        # 랜덤 런치(is_from_match=True)는 일반 채팅방으로 분류하지 않음
+        if party.is_from_match:
+            continue
         
         # 파티의 마지막 메시지 가져오기
         last_message = ChatMessage.query.filter_by(
@@ -2390,6 +2394,42 @@ def get_my_chats(employee_id):
     
     # 중복 제거를 위한 set
     seen_chat_room_ids = set()
+    
+    # 랜덤 런치 채팅방들도 일반 채팅방으로 분류
+    random_lunch_parties = Party.query.filter(
+        Party.members_employee_ids.contains(employee_id),
+        Party.is_from_match == True
+    ).order_by(desc(Party.id)).all()
+    
+    for party in random_lunch_parties:
+        # 중복 체크
+        if party.id in seen_chat_room_ids:
+            continue
+        seen_chat_room_ids.add(party.id)
+        
+        # 랜덤 런치의 마지막 메시지 가져오기
+        last_message = ChatMessage.query.filter_by(
+            chat_type='party',
+            chat_id=party.id
+        ).order_by(desc(ChatMessage.created_at)).first()
+        
+        # 최근 메시지 미리보기 (최대 15글자)
+        if last_message:
+            message_preview = last_message.message
+            if len(message_preview) > 15:
+                message_preview = message_preview[:15] + '...'
+        else:
+            message_preview = f"{party.restaurant_name} | {party.current_members}/{party.max_members}명"
+        
+        custom_chat_list.append({
+            'id': party.id, 
+            'type': 'party', 
+            'title': party.title, 
+            'subtitle': message_preview,
+            'is_from_match': party.is_from_match,
+            'last_message_time': last_message.created_at if last_message else None,
+            'unread_count': 3 if party.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
+        })
     
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
