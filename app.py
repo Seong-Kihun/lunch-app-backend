@@ -2402,7 +2402,7 @@ def get_my_chats(employee_id):
     ).order_by(desc(Party.id)).all()
     
     for party in random_lunch_parties:
-        # 중복 체크
+        # 중복 체크 (랜덤 런치용 별도 체크)
         if party.id in seen_chat_room_ids:
             continue
         seen_chat_room_ids.add(party.id)
@@ -2431,16 +2431,19 @@ def get_my_chats(employee_id):
             'unread_count': 3 if party.id % 2 == 0 else 0  # 테스트용 안읽은 메시지 수
         })
     
+    # 일반 채팅방용 별도 중복 체크
+    seen_custom_chat_ids = set()
+    
     for participation in user_participations:
         chat_room = ChatRoom.query.get(participation.room_id)
         print(f"=== DEBUG: 채팅방 ID {participation.room_id} - 타입: {chat_room.type if chat_room else 'None'} - 이름: {chat_room.name if chat_room else 'None'} ===")
         
-        # 중복 체크
-        if chat_room and chat_room.id in seen_chat_room_ids:
+        # 중복 체크 (일반 채팅방용 별도 체크)
+        if chat_room and chat_room.id in seen_custom_chat_ids:
             print(f"=== DEBUG: 채팅방 ID {participation.room_id} 중복 제외 ===")
             continue
         if chat_room:
-            seen_chat_room_ids.add(chat_room.id)
+            seen_custom_chat_ids.add(chat_room.id)
         
         print(f"=== DEBUG: 채팅방 ID {participation.room_id} 조건 체크 - chat_room: {chat_room is not None}, type: {chat_room.type if chat_room else 'None'} ===")
         
