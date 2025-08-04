@@ -2437,11 +2437,14 @@ def get_my_chats(employee_id):
         
         # 중복 체크
         if chat_room and chat_room.id in seen_chat_room_ids:
+            print(f"=== DEBUG: 채팅방 ID {participation.room_id} 중복 제외 ===")
             continue
         if chat_room:
             seen_chat_room_ids.add(chat_room.id)
         
-        if chat_room and chat_room.type in ['group', 'friend']:
+        print(f"=== DEBUG: 채팅방 ID {participation.room_id} 조건 체크 - chat_room: {chat_room is not None}, type: {chat_room.type if chat_room else 'None'} ===")
+        
+        if chat_room:  # 모든 채팅방을 포함
             # 채팅방 타입에 따라 올바른 chat_type 결정
             if chat_room.type == 'group':
                 chat_type = 'group'
