@@ -215,11 +215,20 @@ class User(db.Model):
     preferred_time = db.Column(db.String(10), nullable=True)  # 선호 시간대
     frequent_areas = db.Column(db.Text, nullable=True)  # 자주 가는 지역
     notification_settings = db.Column(db.Text, nullable=True)  # 알림 설정
+    # 포인트 시스템 필드들
+    total_points = db.Column(db.Integer, default=0)
+    current_level = db.Column(db.Integer, default=1)
+    current_badge = db.Column(db.String(50), nullable=True)
+    consecutive_login_days = db.Column(db.Integer, default=0)
+    last_login_date = db.Column(db.Date, nullable=True)
     def __init__(self, employee_id, nickname, lunch_preference, main_dish_genre):
         self.employee_id = employee_id
         self.nickname = nickname
         self.lunch_preference = lunch_preference
         self.main_dish_genre = main_dish_genre
+        self.total_points = 0
+        self.current_level = 1
+        self.consecutive_login_days = 0
 
 class Restaurant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -504,6 +513,67 @@ class ChatMessageRead(db.Model):
         self.message_id = message_id
         self.user_id = user_id
 
+# 포인트 시스템 관련 테이블들
+class UserActivity(db.Model):
+    """사용자 활동 기록 테이블"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(50), nullable=False)
+    activity_type = db.Column(db.String(50), nullable=False)  # 'login', 'review', 'party_created' 등
+    points_earned = db.Column(db.Integer, default=0)
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, user_id, activity_type, points_earned, description=None):
+        self.user_id = user_id
+        self.activity_type = activity_type
+        self.points_earned = points_earned
+        self.description = description
+
+class CategoryActivity(db.Model):
+    """카테고리별 활동 기록 테이블"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(50), nullable=False)  # 'ramen', 'pizza', 'korean' 등
+    activity_type = db.Column(db.String(50), nullable=False)  # 'search', 'review', 'visit' 등
+    points_earned = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, user_id, category, activity_type, points_earned):
+        self.user_id = user_id
+        self.category = category
+        self.activity_type = activity_type
+        self.points_earned = points_earned
+
+class Badge(db.Model):
+    """배지 정보 테이블"""
+    id = db.Column(db.Integer, primary_key=True)
+    badge_name = db.Column(db.String(50), nullable=False)
+    badge_icon = db.Column(db.String(20), nullable=False)
+    badge_color = db.Column(db.String(10), nullable=True)
+    requirement_type = db.Column(db.String(50), nullable=False)  # 'activity_count', 'points_threshold' 등
+    requirement_count = db.Column(db.Integer, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, badge_name, badge_icon, requirement_type, requirement_count, description=None, badge_color=None):
+        self.badge_name = badge_name
+        self.badge_icon = badge_icon
+        self.requirement_type = requirement_type
+        self.requirement_count = requirement_count
+        self.description = description
+        self.badge_color = badge_color
+
+class UserBadge(db.Model):
+    """사용자 배지 획득 기록 테이블"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(50), nullable=False)
+    badge_id = db.Column(db.Integer, db.ForeignKey('badge.id'), nullable=False)
+    earned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, user_id, badge_id):
+        self.user_id = user_id
+        self.badge_id = badge_id
+
 class VotingSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chat_room_id = db.Column(db.Integer, nullable=False)
@@ -676,6 +746,27 @@ def create_tables_and_init_data():
                             latitude=lat,
                             longitude=lon
                         ))
+            
+            # 기본 배지 데이터 생성
+            if Badge.query.count() == 0:
+                badges = [
+                    Badge('첫 파티', '🎉', 'first_party', 1, '첫 번째 파티를 생성했습니다'),
+                    Badge('첫 리뷰', '✍️', 'first_review', 1, '첫 번째 리뷰를 작성했습니다'),
+                    Badge('연속 로그인', '🔥', 'consecutive_login', 7, '7일 연속으로 로그인했습니다'),
+                    Badge('포인트 마스터', '💎', 'total_points', 10000, '총 10,000포인트를 달성했습니다'),
+                    Badge('양식 마스터', '🍝', 'western_master', 10, '양식 관련 활동 10회 달성'),
+                    Badge('카페 헌터', '☕', 'cafe_hunter', 10, '카페 관련 활동 10회 달성'),
+                    Badge('한식 전문가', '🍚', 'korean_expert', 10, '한식 관련 활동 10회 달성'),
+                    Badge('중식 탐험가', '🥘', 'chinese_explorer', 10, '중식 관련 활동 10회 달성'),
+                    Badge('일식 마니아', '🍣', 'japanese_lover', 10, '일식 관련 활동 10회 달성'),
+                    Badge('랜덤런치 왕', '🏃‍♂️', 'random_lunch_king', 5, '랜덤런치 5회 참여'),
+                    Badge('파티 플래너', '🎉', 'party_planner', 5, '파티 5회 생성'),
+                    Badge('리뷰 작가', '✍️', 'review_writer', 10, '리뷰 10회 작성'),
+                    Badge('친구 사랑', '🤝', 'friend_lover', 10, '친구 10명 추가')
+                ]
+                for badge in badges:
+                    db.session.add(badge)
+                db.session.commit()
             
             # 성사된 랜덤런치 그룹 테스트 데이터 추가
             if Party.query.filter_by(is_from_match=True).count() == 0:
@@ -933,6 +1024,50 @@ def add_review(restaurant_id):
     )
     db.session.add(new_review)
     db.session.commit()
+    
+    # 포인트 획득
+    user_id = data.get('user_id')
+    if user_id:
+        # 리뷰 작성 포인트
+        earn_points(user_id, 'review_written', 20, '리뷰 작성')
+        
+        # 사진이 있으면 추가 포인트
+        if data.get('photo_url'):
+            earn_points(user_id, 'review_with_photo', 15, '사진과 함께 리뷰 작성')
+        
+        # 첫 리뷰 배지 확인
+        badge = check_badge_earned(user_id, 'first_review')
+        if badge:
+            award_badge(user_id, badge)
+        
+        # 카테고리별 배지 확인
+        if restaurant:
+            category = restaurant.category.lower()
+            if '양식' in category or 'western' in category:
+                badge = check_badge_earned(user_id, 'western_master')
+                if badge:
+                    award_badge(user_id, badge)
+            elif '카페' in category or 'cafe' in category:
+                badge = check_badge_earned(user_id, 'cafe_hunter')
+                if badge:
+                    award_badge(user_id, badge)
+            elif '한식' in category or 'korean' in category:
+                badge = check_badge_earned(user_id, 'korean_expert')
+                if badge:
+                    award_badge(user_id, badge)
+            elif '중식' in category or 'chinese' in category:
+                badge = check_badge_earned(user_id, 'chinese_explorer')
+                if badge:
+                    award_badge(user_id, badge)
+            elif '일식' in category or 'japanese' in category:
+                badge = check_badge_earned(user_id, 'japanese_lover')
+                if badge:
+                    award_badge(user_id, badge)
+            elif '카페' in category or 'cafe' in category:
+                badge = check_badge_earned(user_id, 'cafe_hunter')
+                if badge:
+                    award_badge(user_id, badge)
+    
     return jsonify({'message': '리뷰가 추가되었습니다.', 'id': new_review.id}), 201
 
 @app.route('/restaurants/search', methods=['GET'])
@@ -1434,6 +1569,422 @@ def create_notification(user_id, type, title, message, related_id=None):
         'related_id': related_id
     }, room=user_id)  # type: ignore
 
+# 포인트 시스템 유틸리티 함수들
+def calculate_level(points):
+    """포인트에 따른 레벨 계산"""
+    if points < 1000:
+        return 1
+    elif points < 3000:
+        return 2
+    elif points < 6000:
+        return 3
+    elif points < 10000:
+        return 4
+    elif points < 20000:
+        return 5
+    else:
+        return 6
+
+def earn_points(user_id, activity_type, points, description=None):
+    """포인트 획득 함수"""
+    try:
+        # 사용자 포인트 업데이트
+        user = User.query.filter_by(employee_id=user_id).first()
+        if user:
+            user.total_points += points
+            user.current_level = calculate_level(user.total_points)
+            db.session.commit()
+            
+            # 활동 기록
+            activity = UserActivity(user_id, activity_type, points, description)
+            db.session.add(activity)
+            db.session.commit()
+            
+            return True
+    except Exception as e:
+        print(f"포인트 획득 실패: {e}")
+        db.session.rollback()
+        return False
+
+def earn_category_points(user_id, category, activity_type, points):
+    """카테고리별 포인트 획득 함수"""
+    try:
+        # 카테고리 활동 기록
+        category_activity = CategoryActivity(user_id, category, activity_type, points)
+        db.session.add(category_activity)
+        db.session.commit()
+        
+        return True
+    except Exception as e:
+        print(f"카테고리 포인트 획득 실패: {e}")
+        db.session.rollback()
+        return False
+
+def check_badge_earned(user_id, badge_type):
+    """배지 획득 조건 확인 함수"""
+    try:
+        user = User.query.filter_by(employee_id=user_id).first()
+        if not user:
+            return False
+            
+        # 이미 획득한 배지인지 확인
+        existing_badge = UserBadge.query.filter_by(user_id=user_id).join(Badge).filter(Badge.requirement_type == badge_type).first()
+        if existing_badge:
+            return False
+            
+        # 배지 조건 확인
+        badge = Badge.query.filter_by(requirement_type=badge_type).first()
+        if not badge:
+            return False
+            
+        # 조건에 따른 확인
+        if badge_type == 'first_party':
+            party_count = Party.query.filter_by(host_employee_id=user_id).count()
+            if party_count >= badge.requirement_count:
+                return badge
+        elif badge_type == 'first_review':
+            review_count = Review.query.filter_by(user_id=user_id).count()
+            if review_count >= badge.requirement_count:
+                return badge
+        elif badge_type == 'consecutive_login':
+            if user.consecutive_login_days >= badge.requirement_count:
+                return badge
+        elif badge_type == 'total_points':
+            if user.total_points >= badge.requirement_count:
+                return badge
+        elif badge_type == 'western_master':
+            # 양식 관련 활동 카운트 (리뷰, 검색 등)
+            western_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='western'
+            ).count()
+            if western_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'cafe_hunter':
+            # 카페 관련 활동 카운트 (리뷰, 검색 등)
+            cafe_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='cafe'
+            ).count()
+            if cafe_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'korean_expert':
+            # 한식 관련 활동 카운트
+            korean_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='korean'
+            ).count()
+            if korean_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'chinese_explorer':
+            # 중식 관련 활동 카운트
+            chinese_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='chinese'
+            ).count()
+            if chinese_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'japanese_lover':
+            # 일식 관련 활동 카운트
+            japanese_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='japanese'
+            ).count()
+            if japanese_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'random_lunch_king':
+            # 랜덤런치 참여 카운트
+            random_activities = CategoryActivity.query.filter_by(
+                user_id=user_id, 
+                category='random_lunch_king'
+            ).count()
+            if random_activities >= badge.requirement_count:
+                return badge
+        elif badge_type == 'party_planner':
+            # 파티 생성 카운트
+            party_count = Party.query.filter_by(host_employee_id=user_id).count()
+            if party_count >= badge.requirement_count:
+                return badge
+        elif badge_type == 'review_writer':
+            # 리뷰 작성 카운트
+            review_count = Review.query.filter_by(user_id=user_id).count()
+            if review_count >= badge.requirement_count:
+                return badge
+        elif badge_type == 'friend_lover':
+            # 친구 추가 카운트 (임시로 10명으로 설정)
+            friend_count = 10  # 실제 친구 테이블이 있으면 그걸로 변경
+            if friend_count >= badge.requirement_count:
+                return badge
+                
+        return False
+    except Exception as e:
+        print(f"배지 확인 실패: {e}")
+        return False
+
+def award_badge(user_id, badge):
+    """배지 수여 함수"""
+    try:
+        user_badge = UserBadge(user_id, badge.id)
+        db.session.add(user_badge)
+        
+        # 사용자의 현재 배지 업데이트
+        user = User.query.filter_by(employee_id=user_id).first()
+        if user:
+            user.current_badge = badge.badge_name
+            db.session.commit()
+            
+        return True
+    except Exception as e:
+        print(f"배지 수여 실패: {e}")
+        db.session.rollback()
+        return False
+
+# 포인트 시스템 API 엔드포인트들
+@app.route('/api/points/earn', methods=['POST'])
+def earn_points_api():
+    """포인트 획득 API"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        activity_type = data.get('activity_type')
+        points = data.get('points', 0)
+        description = data.get('description')
+        
+        if not all([user_id, activity_type]):
+            return jsonify({'message': '필수 필드가 누락되었습니다.'}), 400
+        
+        success = earn_points(user_id, activity_type, points, description)
+        if success:
+            return jsonify({'message': f'{points}포인트를 획득했습니다!', 'points_earned': points}), 200
+        else:
+            return jsonify({'message': '포인트 획득에 실패했습니다.'}), 500
+            
+    except Exception as e:
+        return jsonify({'message': f'포인트 획득 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/points/history/<user_id>', methods=['GET'])
+def get_points_history(user_id):
+    """포인트 히스토리 조회 API"""
+    try:
+        activities = UserActivity.query.filter_by(user_id=user_id).order_by(desc(UserActivity.created_at)).limit(50).all()
+        
+        history = []
+        for activity in activities:
+            history.append({
+                'id': activity.id,
+                'activity_type': activity.activity_type,
+                'points_earned': activity.points_earned,
+                'description': activity.description,
+                'created_at': activity.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return jsonify({'history': history}), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'포인트 히스토리 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/points/my-ranking/<user_id>', methods=['GET'])
+def get_my_points_ranking(user_id):
+    """내 포인트 순위 조회 API"""
+    try:
+        user = User.query.filter_by(employee_id=user_id).first()
+        if not user:
+            return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+        
+        # 전체 사용자 중 내 순위 계산
+        total_users = User.query.count()
+        my_rank = User.query.filter(User.total_points > user.total_points).count() + 1
+        
+        return jsonify({
+            'total_points': user.total_points,
+            'current_level': user.current_level,
+            'current_badge': user.current_badge,
+            'my_rank': my_rank,
+            'total_users': total_users
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'순위 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/rankings/special/<category>', methods=['GET'])
+def get_special_ranking(category):
+    """이색 랭킹 조회 API"""
+    try:
+        # 카테고리별 포인트 합계 계산
+        category_points = db.session.query(
+            CategoryActivity.user_id,
+            func.sum(CategoryActivity.points_earned).label('total_points')
+        ).filter_by(category=category).group_by(CategoryActivity.user_id).order_by(
+            desc(func.sum(CategoryActivity.points_earned))
+        ).limit(100).all()
+        
+        rankings = []
+        for i, (user_id, points) in enumerate(category_points, 1):
+            user = User.query.filter_by(employee_id=user_id).first()
+            if user:
+                rankings.append({
+                    'rank': i,
+                    'user_id': user_id,
+                    'nickname': user.nickname,
+                    'points': points,
+                    'badge': user.current_badge or '신인',
+                    'change': '+1'  # 임시 데이터
+                })
+        
+        return jsonify({'rankings': rankings}), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'이색 랭킹 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/badges', methods=['GET'])
+def get_badges():
+    """전체 배지 목록 조회 API"""
+    try:
+        badges = Badge.query.all()
+        badge_list = []
+        for badge in badges:
+            badge_list.append({
+                'id': badge.id,
+                'badge_name': badge.badge_name,
+                'badge_icon': badge.badge_icon,
+                'badge_color': badge.badge_color,
+                'requirement_type': badge.requirement_type,
+                'requirement_count': badge.requirement_count,
+                'description': badge.description
+            })
+        
+        return jsonify({'badges': badge_list}), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'배지 목록 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/badges/my-badges/<user_id>', methods=['GET'])
+def get_my_badges(user_id):
+    """내 배지 목록 조회 API"""
+    try:
+        user_badges = UserBadge.query.filter_by(user_id=user_id).join(Badge).all()
+        badge_list = []
+        for user_badge in user_badges:
+            badge_list.append({
+                'id': user_badge.badge.id,
+                'badge_name': user_badge.badge.badge_name,
+                'badge_icon': user_badge.badge.badge_icon,
+                'badge_color': user_badge.badge.badge_color,
+                'earned_at': user_badge.earned_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return jsonify({'my_badges': badge_list}), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'내 배지 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/badges/check', methods=['POST'])
+def check_badge_earned_api():
+    """배지 획득 조건 확인 API"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        badge_type = data.get('badge_type')
+        
+        if not all([user_id, badge_type]):
+            return jsonify({'message': '필수 필드가 누락되었습니다.'}), 400
+        
+        badge = check_badge_earned(user_id, badge_type)
+        if badge:
+            # 배지 수여
+            success = award_badge(user_id, badge)
+            if success:
+                return jsonify({
+                    'message': f'새로운 배지를 획득했습니다: {badge.badge_name}',
+                    'badge': {
+                        'name': badge.badge_name,
+                        'icon': badge.badge_icon,
+                        'color': badge.badge_color
+                    }
+                }), 200
+            else:
+                return jsonify({'message': '배지 수여에 실패했습니다.'}), 500
+        else:
+            return jsonify({'message': '아직 배지 획득 조건을 만족하지 않습니다.'}), 200
+            
+    except Exception as e:
+        return jsonify({'message': f'배지 확인 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/rankings/<period>', methods=['GET'])
+def get_rankings(period):
+    """주간/월간/올타임 랭킹 조회 API"""
+    try:
+        if period not in ['weekly', 'monthly', 'alltime']:
+            return jsonify({'message': '잘못된 기간입니다.'}), 400
+        
+        # 사용자별 포인트 합계 계산
+        if period == 'weekly':
+            # 이번 주 포인트 합계
+            start_date = datetime.now() - timedelta(days=7)
+            user_points = db.session.query(
+                UserActivity.user_id,
+                func.sum(UserActivity.points_earned).label('total_points')
+            ).filter(UserActivity.created_at >= start_date).group_by(UserActivity.user_id).order_by(
+                desc(func.sum(UserActivity.points_earned))
+            ).limit(100).all()
+        elif period == 'monthly':
+            # 이번 달 포인트 합계
+            start_date = datetime.now() - timedelta(days=30)
+            user_points = db.session.query(
+                UserActivity.user_id,
+                func.sum(UserActivity.points_earned).label('total_points')
+            ).filter(UserActivity.created_at >= start_date).group_by(UserActivity.user_id).order_by(
+                desc(func.sum(UserActivity.points_earned))
+            ).limit(100).all()
+        else:  # alltime
+            # 전체 포인트 합계
+            user_points = db.session.query(
+                UserActivity.user_id,
+                func.sum(UserActivity.points_earned).label('total_points')
+            ).group_by(UserActivity.user_id).order_by(
+                desc(func.sum(UserActivity.points_earned))
+            ).limit(100).all()
+        
+        rankings = []
+        for i, (user_id, points) in enumerate(user_points, 1):
+            user = User.query.filter_by(employee_id=user_id).first()
+            if user:
+                rankings.append({
+                    'rank': i,
+                    'user_id': user_id,
+                    'nickname': user.nickname,
+                    'points': points,
+                    'badge': user.current_badge or '신인',
+                    'change': '+1'  # 임시 데이터
+                })
+        
+        return jsonify({'rankings': rankings}), 200
+        
+    except Exception as e:
+        return jsonify({'message': f'랭킹 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/activities/category', methods=['POST'])
+def add_category_activity():
+    """카테고리별 활동 기록 API"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        category = data.get('category')
+        activity_type = data.get('activity_type')
+        points = data.get('points', 0)
+        
+        if not all([user_id, category, activity_type]):
+            return jsonify({'message': '필수 필드가 누락되었습니다.'}), 400
+        
+        success = earn_category_points(user_id, category, activity_type, points)
+        if success:
+            return jsonify({'message': f'카테고리 활동이 기록되었습니다.'}), 200
+        else:
+            return jsonify({'message': '카테고리 활동 기록에 실패했습니다.'}), 500
+            
+    except Exception as e:
+        return jsonify({'message': f'카테고리 활동 기록 중 오류가 발생했습니다: {str(e)}'}), 500
+
 @app.route('/notifications', methods=['POST'])
 def create_notification_api():
     """알림 생성 API"""
@@ -1641,6 +2192,18 @@ def create_party():
     new_party.create_chat_room()
     
     db.session.commit()
+    
+    # 포인트 획득
+    host_employee_id = data['host_employee_id']
+    if host_employee_id:
+        # 파티 생성 포인트
+        earn_points(host_employee_id, 'party_created', 50, '파티 생성')
+        
+        # 첫 파티 배지 확인
+        badge = check_badge_earned(host_employee_id, 'first_party')
+        if badge:
+            award_badge(host_employee_id, badge)
+    
     return jsonify({'message': '파티가 생성되었습니다.', 'party_id': new_party.id}), 201
 
 @app.route('/parties/<int:party_id>', methods=['GET'])
@@ -1679,7 +2242,36 @@ def join_party(party_id):
     employee_id = data.get('employee_id')
     if party and party.current_members >= party.max_members: return jsonify({'message': '파티 인원이 가득 찼습니다.'}), 400
     if party and employee_id and employee_id not in party.members_employee_ids.split(','):
-        party.members_employee_ids += f',{employee_id}'; db.session.commit()
+        party.members_employee_ids += f',{employee_id}'
+        db.session.commit()
+        
+        # 파티 참여 포인트
+        earn_points(employee_id, 'party_joined', 30, '파티 참여')
+        
+        # 랜덤런치 파티인 경우 추가 포인트
+        if party.is_from_match:
+            earn_points(employee_id, 'random_lunch_joined', 20, '랜덤런치 참여')
+            earn_category_points(employee_id, 'random_lunch_king', 'join', 20)
+        
+        # 파티의 식당 카테고리에 따른 포인트 획득
+        if party.restaurant_name:
+            # 식당 정보에서 카테고리 확인
+            restaurant = Restaurant.query.filter_by(name=party.restaurant_name).first()
+            if restaurant:
+                category = restaurant.category.lower()
+                if '양식' in category or 'western' in category:
+                    earn_category_points(employee_id, 'western', 'party_join', 15)
+                elif '카페' in category or 'cafe' in category:
+                    earn_category_points(employee_id, 'cafe', 'party_join', 15)
+                elif '한식' in category or 'korean' in category:
+                    earn_category_points(employee_id, 'korean', 'party_join', 15)
+                elif '중식' in category or 'chinese' in category:
+                    earn_category_points(employee_id, 'chinese', 'party_join', 15)
+                elif '일식' in category or 'japanese' in category:
+                    earn_category_points(employee_id, 'japanese', 'party_join', 15)
+                elif '카페' in category or 'cafe' in category:
+                    earn_category_points(employee_id, 'cafe', 'party_join', 15)
+    
     return jsonify({'message': '파티에 참여했습니다.'})
 
 @app.route('/parties/<int:party_id>/leave', methods=['POST'])
