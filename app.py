@@ -491,32 +491,37 @@ def create_tables_and_init_data():
                 
                 if csv_path:
                     print(f"CSV 파일을 찾았습니다: {csv_path}")
-                    df = pd.read_csv(csv_path, encoding='utf-8')
-                    print(f"CSV 파일에서 {len(df)}개의 행을 읽었습니다.")
-                    
-                    # CSV 파일이 '사업장명', '소재지(지번)' 컬럼을 갖고 있다고 가정
-                    for idx, row in df.iterrows():
-                        name = str(row.get('사업장명', '')).strip()
-                        address = str(row.get('소재지(지번)', '')).strip()
-                        if not name or not address:
-                            continue
-                        # 중복 체크 (이름+주소)
-                        exists = Restaurant.query.filter_by(name=name, address=address).first()
-                        if exists:
-                            continue
+                    try:
+                        # CSV 파일 읽기 시도 (오류 발생 시 무시)
+                        df = pd.read_csv(csv_path, encoding='utf-8')
+                        print(f"CSV 파일에서 {len(df)}개의 행을 읽었습니다.")
                         
-                        # 주소를 좌표로 변환
-                        lat, lon = geocode_address(address)
-                        
-                        db.session.add(Restaurant(
-                            name=name,
-                            category='',
-                            address=address,
-                            latitude=lat,
-                            longitude=lon
-                        ))
-                    db.session.commit()
-                    print(f"CSV 파일에서 {Restaurant.query.count()}개의 식당을 등록했습니다.")
+                        # CSV 파일이 '사업장명', '소재지(지번)' 컬럼을 갖고 있다고 가정
+                        for idx, row in df.iterrows():
+                            name = str(row.get('사업장명', '')).strip()
+                            address = str(row.get('소재지(지번)', '')).strip()
+                            if not name or not address:
+                                continue
+                            # 중복 체크 (이름+주소)
+                            exists = Restaurant.query.filter_by(name=name, address=address).first()
+                            if exists:
+                                continue
+                            
+                            # 주소를 좌표로 변환
+                            lat, lon = geocode_address(address)
+                            
+                            db.session.add(Restaurant(
+                                name=name,
+                                category='',
+                                address=address,
+                                latitude=lat,
+                                longitude=lon
+                            ))
+                        db.session.commit()
+                        print(f"CSV 파일에서 {Restaurant.query.count()}개의 식당을 등록했습니다.")
+                    except Exception as e:
+                        print(f"CSV 파일 읽기 오류 (무시됨): {e}")
+                        pass
                 else:
                     # 기존 하드코딩 데이터 (엑셀 없을 때만)
                     restaurants_data = [
