@@ -491,37 +491,32 @@ def create_tables_and_init_data():
                 
                 if csv_path:
                     print(f"CSV 파일을 찾았습니다: {csv_path}")
-                    try:
-                        # CSV 파일 읽기 시도 (오류 발생 시 무시)
-                        df = pd.read_csv(csv_path, encoding='utf-8')
-                        print(f"CSV 파일에서 {len(df)}개의 행을 읽었습니다.")
+                    df = pd.read_csv(csv_path, encoding='utf-8')
+                    print(f"CSV 파일에서 {len(df)}개의 행을 읽었습니다.")
+                    
+                    # CSV 파일이 '사업장명', '소재지(지번)' 컬럼을 갖고 있다고 가정
+                    for idx, row in df.iterrows():
+                        name = str(row.get('사업장명', '')).strip()
+                        address = str(row.get('소재지(지번)', '')).strip()
+                        if not name or not address:
+                            continue
+                        # 중복 체크 (이름+주소)
+                        exists = Restaurant.query.filter_by(name=name, address=address).first()
+                        if exists:
+                            continue
                         
-                        # CSV 파일이 '사업장명', '소재지(지번)' 컬럼을 갖고 있다고 가정
-                        for idx, row in df.iterrows():
-                            name = str(row.get('사업장명', '')).strip()
-                            address = str(row.get('소재지(지번)', '')).strip()
-                            if not name or not address:
-                                continue
-                            # 중복 체크 (이름+주소)
-                            exists = Restaurant.query.filter_by(name=name, address=address).first()
-                            if exists:
-                                continue
-                            
-                            # 주소를 좌표로 변환
-                            lat, lon = geocode_address(address)
-                            
-                            db.session.add(Restaurant(
-                                name=name,
-                                category='',
-                                address=address,
-                                latitude=lat,
-                                longitude=lon
-                            ))
-                        db.session.commit()
-                        print(f"CSV 파일에서 {Restaurant.query.count()}개의 식당을 등록했습니다.")
-                    except Exception as e:
-                        print(f"CSV 파일 읽기 오류 (무시됨): {e}")
-                        pass
+                        # 주소를 좌표로 변환
+                        lat, lon = geocode_address(address)
+                        
+                        db.session.add(Restaurant(
+                            name=name,
+                            category='',
+                            address=address,
+                            latitude=lat,
+                            longitude=lon
+                        ))
+                    db.session.commit()
+                    print(f"CSV 파일에서 {Restaurant.query.count()}개의 식당을 등록했습니다.")
                 else:
                     # 기존 하드코딩 데이터 (엑셀 없을 때만)
                     restaurants_data = [
@@ -620,85 +615,85 @@ def get_events(employee_id):
             'members': member_nicknames, 'all_members': all_member_nicknames
         })
     
-                # 개인 일정 조회 (반복 일정 포함)
-        schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
-        print(f"[DEBUG] 조회된 개인 일정 개수: {len(schedules)}")
+    # 개인 일정 조회 (반복 일정 포함)
+    schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
+    print(f"[DEBUG] 조회된 개인 일정 개수: {len(schedules)}")
+    
+    # 개별 일정이 있는 날짜들을 추적 (반복 일정에서 제외할 날짜들)
+    individual_dates = set()
+    for s in schedules:
+        if not s.is_recurring and s.original_schedule_id:
+            # 개별 일정이고 원본 반복 일정이 있는 경우
+            individual_dates.add(s.schedule_date)
+    
+    for s in schedules:
+        schedule_date = datetime.strptime(s.schedule_date, '%Y-%m-%d').date()
+        print(f"[DEBUG] 일정 정보 - ID: {s.id}, 제목: {s.title}, 날짜: {s.schedule_date}, 반복여부: {s.is_recurring}, 반복유형: {s.recurrence_type}")
         
-        # 개별 일정이 있는 날짜들을 추적 (반복 일정에서 제외할 날짜들)
-        individual_dates = set()
-        for s in schedules:
-            if not s.is_recurring and s.original_schedule_id:
-                # 개별 일정이고 원본 반복 일정이 있는 경우
-                individual_dates.add(s.schedule_date)
-        
-        for s in schedules:
-            schedule_date = datetime.strptime(s.schedule_date, '%Y-%m-%d').date()
-            print(f"[DEBUG] 일정 정보 - ID: {s.id}, 제목: {s.title}, 날짜: {s.schedule_date}, 반복여부: {s.is_recurring}, 반복유형: {s.recurrence_type}")
+        # 과거 일정은 제외
+        if schedule_date < today:
+            print(f"[DEBUG] 과거 일정 제외: {s.schedule_date}")
+            continue
             
-            # 과거 일정은 제외
-            if schedule_date < today:
-                print(f"[DEBUG] 과거 일정 제외: {s.schedule_date}")
-                continue
-                
-            # 반복 일정인 경우
-            if s.is_recurring and s.recurrence_type:
-                print(f"[DEBUG] 반복 일정 처리 시작 - 유형: {s.recurrence_type}, 간격: {s.recurrence_interval}")
-                # 1년 후까지의 반복 일정들을 동적으로 생성
-                end_date = today + timedelta(days=365)
-                current_date = schedule_date
-                generated_count = 0
-                
-                while current_date <= end_date:
-                    if current_date >= today:  # 오늘 이후의 일정만 표시
-                        date_str = current_date.strftime('%Y-%m-%d')
-                        
-                        # 개별 일정이 있는 날짜는 반복 일정에서 제외
-                        if date_str in individual_dates:
-                            print(f"[DEBUG] 개별 일정이 있어서 반복 일정 제외: {date_str}")
-                        else:
-                            if date_str not in events: events[date_str] = []
-                            events[date_str].append({
-                                'type': '개인 일정', 
-                                'id': s.id, 
-                                'title': s.title, 
-                                'description': s.description, 
-                                'date': date_str,
-                                'is_recurring': True,
-                                'recurrence_type': s.recurrence_type
-                            })
-                            generated_count += 1
-                            print(f"[DEBUG] 반복 일정 생성: {date_str}")
+        # 반복 일정인 경우
+        if s.is_recurring and s.recurrence_type:
+            print(f"[DEBUG] 반복 일정 처리 시작 - 유형: {s.recurrence_type}, 간격: {s.recurrence_interval}")
+            # 1년 후까지의 반복 일정들을 동적으로 생성
+            end_date = today + timedelta(days=365)
+            current_date = schedule_date
+            generated_count = 0
+            
+            while current_date <= end_date:
+                if current_date >= today:  # 오늘 이후의 일정만 표시
+                    date_str = current_date.strftime('%Y-%m-%d')
                     
-                    # 다음 반복 날짜 계산
-                    if s.recurrence_type == 'weekly':
-                        current_date += timedelta(weeks=s.recurrence_interval)
-                    elif s.recurrence_type == 'monthly':
-                        # 월 단위 반복
-                        year = current_date.year
-                        month = current_date.month + s.recurrence_interval
-                        while month > 12:
-                            year += 1
-                            month -= 12
-                        current_date = current_date.replace(year=year, month=month)
-                    elif s.recurrence_type == 'yearly':
-                        current_date = current_date.replace(year=current_date.year + s.recurrence_interval)
+                    # 개별 일정이 있는 날짜는 반복 일정에서 제외
+                    if date_str in individual_dates:
+                        print(f"[DEBUG] 개별 일정이 있어서 반복 일정 제외: {date_str}")
                     else:
-                        break
+                        if date_str not in events: events[date_str] = []
+                        events[date_str].append({
+                            'type': '개인 일정', 
+                            'id': s.id, 
+                            'title': s.title, 
+                            'description': s.description, 
+                            'date': date_str,
+                            'is_recurring': True,
+                            'recurrence_type': s.recurrence_type
+                        })
+                        generated_count += 1
+                        print(f"[DEBUG] 반복 일정 생성: {date_str}")
                 
-                print(f"[DEBUG] 반복 일정 생성 완료 - 총 {generated_count}개 생성")
-            else:
-                # 일반 일정 (개별 일정 포함)
-                date_str = s.schedule_date
-                if date_str not in events: events[date_str] = []
-                events[date_str].append({
-                    'type': '개인 일정', 
-                    'id': s.id, 
-                    'title': s.title, 
-                    'description': s.description, 
-                    'date': date_str,
-                    'is_individual': s.original_schedule_id is not None  # 개별 일정 여부
-                })
-                print(f"[DEBUG] 일반 일정 추가: {date_str}")
+                # 다음 반복 날짜 계산
+                if s.recurrence_type == 'weekly':
+                    current_date += timedelta(weeks=s.recurrence_interval)
+                elif s.recurrence_type == 'monthly':
+                    # 월 단위 반복
+                    year = current_date.year
+                    month = current_date.month + s.recurrence_interval
+                    while month > 12:
+                        year += 1
+                        month -= 12
+                    current_date = current_date.replace(year=year, month=month)
+                elif s.recurrence_type == 'yearly':
+                    current_date = current_date.replace(year=current_date.year + s.recurrence_interval)
+                else:
+                    break
+            
+            print(f"[DEBUG] 반복 일정 생성 완료 - 총 {generated_count}개 생성")
+        else:
+            # 일반 일정 (개별 일정 포함)
+            date_str = s.schedule_date
+            if date_str not in events: events[date_str] = []
+            events[date_str].append({
+                'type': '개인 일정', 
+                'id': s.id, 
+                'title': s.title, 
+                'description': s.description, 
+                'date': date_str,
+                'is_individual': s.original_schedule_id is not None  # 개별 일정 여부
+            })
+            print(f"[DEBUG] 일반 일정 추가: {date_str}")
     
     print(f"[DEBUG] 최종 이벤트 데이터: {events}")
     return jsonify(events)
