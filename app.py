@@ -619,6 +619,13 @@ def get_events(employee_id):
     schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
     print(f"[DEBUG] 조회된 개인 일정 개수: {len(schedules)}")
     
+    # 개별 일정이 있는 날짜들을 추적 (반복 일정에서 제외할 날짜들)
+    individual_dates = set()
+    for s in schedules:
+        if not s.is_recurring and s.original_schedule_id:
+            # 개별 일정이고 원본 반복 일정이 있는 경우
+            individual_dates.add(s.schedule_date)
+    
     for s in schedules:
         schedule_date = datetime.strptime(s.schedule_date, '%Y-%m-%d').date()
         print(f"[DEBUG] 일정 정보 - ID: {s.id}, 제목: {s.title}, 날짜: {s.schedule_date}, 반복여부: {s.is_recurring}, 반복유형: {s.recurrence_type}")
@@ -639,18 +646,23 @@ def get_events(employee_id):
             while current_date <= end_date:
                 if current_date >= today:  # 오늘 이후의 일정만 표시
                     date_str = current_date.strftime('%Y-%m-%d')
-                    if date_str not in events: events[date_str] = []
-                    events[date_str].append({
-                        'type': '개인 일정', 
-                        'id': s.id, 
-                        'title': s.title, 
-                        'description': s.description, 
-                        'date': date_str,
-                        'is_recurring': True,
-                        'recurrence_type': s.recurrence_type
-                    })
-                    generated_count += 1
-                    print(f"[DEBUG] 반복 일정 생성: {date_str}")
+                    
+                    # 개별 일정이 있는 날짜는 반복 일정에서 제외
+                    if date_str in individual_dates:
+                        print(f"[DEBUG] 개별 일정이 있어서 반복 일정 제외: {date_str}")
+                    else:
+                        if date_str not in events: events[date_str] = []
+                        events[date_str].append({
+                            'type': '개인 일정', 
+                            'id': s.id, 
+                            'title': s.title, 
+                            'description': s.description, 
+                            'date': date_str,
+                            'is_recurring': True,
+                            'recurrence_type': s.recurrence_type
+                        })
+                        generated_count += 1
+                        print(f"[DEBUG] 반복 일정 생성: {date_str}")
                 
                 # 다음 반복 날짜 계산
                 if s.recurrence_type == 'weekly':
@@ -670,7 +682,7 @@ def get_events(employee_id):
             
             print(f"[DEBUG] 반복 일정 생성 완료 - 총 {generated_count}개 생성")
         else:
-            # 일반 일정
+            # 일반 일정 (개별 일정 포함)
             date_str = s.schedule_date
             if date_str not in events: events[date_str] = []
             events[date_str].append({
@@ -678,7 +690,8 @@ def get_events(employee_id):
                 'id': s.id, 
                 'title': s.title, 
                 'description': s.description, 
-                'date': date_str
+                'date': date_str,
+                'is_individual': s.original_schedule_id is not None  # 개별 일정 여부
             })
             print(f"[DEBUG] 일반 일정 추가: {date_str}")
     
@@ -751,12 +764,18 @@ def update_personal_schedule(schedule_id):
     
     # 반복 일정이고 "이 날짜만 수정" 모드인 경우
     if schedule.is_recurring and edit_mode == 'single':
-        # 원본 반복 일정의 시작 날짜를 수정된 날짜로 변경
-        schedule.schedule_date = data.get('schedule_date', schedule.schedule_date)
-        schedule.title = data.get('title', schedule.title)
-        schedule.description = data.get('description', schedule.description)
+        # 해당 날짜의 새로운 개별 일정 생성
+        new_schedule = PersonalSchedule(
+            employee_id=schedule.employee_id,
+            schedule_date=data.get('schedule_date', schedule.schedule_date),
+            title=data.get('title', schedule.title),
+            description=data.get('description', schedule.description),
+            is_recurring=False,  # 개별 일정으로 생성
+            original_schedule_id=schedule.id  # 원본 반복 일정 참조
+        )
+        db.session.add(new_schedule)
         db.session.commit()
-        return jsonify({'message': '해당 날짜의 일정이 수정되었습니다.'})
+        return jsonify({'message': '해당 날짜의 일정이 수정되었습니다.', 'new_schedule_id': new_schedule.id})
     
     # 반복 일정이고 "모든 반복 일정 수정" 모드인 경우
     elif schedule.is_recurring and edit_mode == 'all':
