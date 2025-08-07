@@ -745,11 +745,38 @@ def add_personal_schedule():
 def update_personal_schedule(schedule_id):
     schedule = PersonalSchedule.query.get(schedule_id)
     if not schedule: return jsonify({'message': '일정을 찾을 수 없습니다.'}), 404
+    
     data = request.get_json()
-    schedule.title = data.get('title', schedule.title)
-    schedule.description = data.get('description', schedule.description)
-    db.session.commit()
-    return jsonify({'message': '일정이 수정되었습니다.'})
+    edit_mode = data.get('edit_mode', 'single')  # 'single' 또는 'all'
+    
+    # 반복 일정이고 전체 수정 모드인 경우
+    if schedule.is_recurring and edit_mode == 'all':
+        # 원본 일정 업데이트
+        schedule.title = data.get('title', schedule.title)
+        schedule.description = data.get('description', schedule.description)
+        schedule.schedule_date = data.get('schedule_date', schedule.schedule_date)
+        schedule.recurrence_type = data.get('recurrence_type', schedule.recurrence_type)
+        schedule.recurrence_interval = data.get('recurrence_interval', schedule.recurrence_interval)
+        schedule.recurrence_end_date = data.get('recurrence_end_date', schedule.recurrence_end_date)
+        
+        db.session.commit()
+        return jsonify({'message': '모든 반복 일정이 수정되었습니다.'})
+    
+    else:
+        # 단일 일정 수정 또는 일반 일정 수정
+        schedule.title = data.get('title', schedule.title)
+        schedule.description = data.get('description', schedule.description)
+        schedule.schedule_date = data.get('schedule_date', schedule.schedule_date)
+        
+        # 반복 설정이 변경된 경우
+        if 'is_recurring' in data:
+            schedule.is_recurring = data.get('is_recurring', schedule.is_recurring)
+            schedule.recurrence_type = data.get('recurrence_type', schedule.recurrence_type)
+            schedule.recurrence_interval = data.get('recurrence_interval', schedule.recurrence_interval)
+            schedule.recurrence_end_date = data.get('recurrence_end_date', schedule.recurrence_end_date)
+        
+        db.session.commit()
+        return jsonify({'message': '일정이 수정되었습니다.'})
 
 @app.route('/personal_schedules/<int:schedule_id>', methods=['DELETE'])
 def delete_personal_schedule(schedule_id):
