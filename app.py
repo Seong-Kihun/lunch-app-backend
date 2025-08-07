@@ -220,6 +220,44 @@ def get_next_recurrence_date(current_date, recurrence_type, interval=1):
     else:
         return current_date
 
+def create_notification(user_id, notification_type, title, message, related_id=None, related_type=None, expires_at=None):
+    """알림 생성 헬퍼 함수"""
+    try:
+        notification = Notification(
+            user_id=user_id,
+            type=notification_type,
+            title=title,
+            message=message,
+            related_id=related_id,
+            related_type=related_type,
+            expires_at=expires_at
+        )
+        db.session.add(notification)
+        db.session.commit()
+        print(f"[DEBUG] 알림 생성 완료 - 사용자: {user_id}, 타입: {notification_type}, 제목: {title}")
+        return notification
+    except Exception as e:
+        print(f"[ERROR] 알림 생성 실패: {e}")
+        db.session.rollback()
+        return None
+
+def get_notification_icon(notification_type):
+    """알림 타입별 아이콘 반환"""
+    icons = {
+        'party_invite': '🎉',
+        'party_join': '👥',
+        'party_cancel': '❌',
+        'party_reminder': '⏰',
+        'friend_request': '👋',
+        'friend_accept': '✅',
+        'chat_message': '💬',
+        'points_earned': '⭐',
+        'badge_earned': '🏆',
+        'review_like': '❤️',
+        'system': '📢'
+    }
+    return icons.get(notification_type, '📄')
+
 # --- 데이터베이스 모델 정의 ---
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -400,22 +438,23 @@ class ChatMessage(db.Model):
 class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(50), nullable=False)
-    type = db.Column(db.String(50), nullable=False)  # 'friend_request', 'party_invite', 'party_join', 'chat_message', 'review_like', 'points_earned', 'badge_earned', 'daily_recommendation'
+    type = db.Column(db.String(50), nullable=False)  # 'friend_request', 'party_invite', 'chat_message', 'review_like', 'party_join', 'party_cancel', 'points_earned', 'badge_earned'
     title = db.Column(db.String(100), nullable=False)
     message = db.Column(db.Text, nullable=False)
     related_id = db.Column(db.Integer, nullable=True)  # 관련 ID (파티 ID, 채팅방 ID 등)
-    related_type = db.Column(db.String(50), nullable=True)  # 관련 타입 ('party', 'chat', 'friend' 등)
+    related_type = db.Column(db.String(50), nullable=True)  # 관련 타입 ('party', 'user', 'chat', 'review')
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=True)  # 만료 시간
+    expires_at = db.Column(db.DateTime, nullable=True)  # 만료 시간 (선택사항)
     
-    def __init__(self, user_id, type, title, message, related_id=None, related_type=None):
+    def __init__(self, user_id, type, title, message, related_id=None, related_type=None, expires_at=None):
         self.user_id = user_id
         self.type = type
         self.title = title
         self.message = message
         self.related_id = related_id
         self.related_type = related_type
+        self.expires_at = expires_at
 
 class UserAnalytics(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -1090,6 +1129,115 @@ def delete_personal_schedule(schedule_id):
         print(f"[DEBUG] 일반 일정 삭제 - ID: {schedule.id}")
         return jsonify({'message': '일정이 삭제되었습니다.'})
 
+# --- 알림 API ---
+@app.route('/notifications/<employee_id>', methods=['GET'])
+def get_notifications(employee_id):
+    """사용자의 알림 목록 조회"""
+    try:
+        # 읽지 않은 알림 수 조회
+        unread_count = Notification.query.filter_by(user_id=employee_id, is_read=False).count()
+        
+        # 최근 알림 목록 조회 (최대 50개, 최신순)
+        notifications = Notification.query.filter_by(user_id=employee_id)\
+            .order_by(Notification.created_at.desc())\
+            .limit(50).all()
+        
+        notification_list = []
+        for notification in notifications:
+            # 상대방 정보 조회 (친구 요청, 파티 초대 등의 경우)
+            sender_info = None
+            if notification.related_type == 'user' and notification.related_id:
+                sender = User.query.filter_by(employee_id=notification.related_id).first()
+                if sender:
+                    sender_info = {
+                        'employee_id': sender.employee_id,
+                        'nickname': sender.nickname
+                    }
+            
+            notification_list.append({
+                'id': notification.id,
+                'type': notification.type,
+                'title': notification.title,
+                'message': notification.message,
+                'icon': get_notification_icon(notification.type),
+                'is_read': notification.is_read,
+                'created_at': notification.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'related_id': notification.related_id,
+                'related_type': notification.related_type,
+                'sender_info': sender_info
+            })
+        
+        return jsonify({
+            'unread_count': unread_count,
+            'notifications': notification_list
+        })
+    
+    except Exception as e:
+        print(f"[ERROR] 알림 조회 실패: {e}")
+        return jsonify({'message': '알림을 불러오는데 실패했습니다.'}), 500
+
+@app.route('/notifications/<int:notification_id>/read', methods=['POST'])
+def mark_notification_read(notification_id):
+    """개별 알림 읽음 처리"""
+    try:
+        notification = Notification.query.get(notification_id)
+        if not notification:
+            return jsonify({'message': '알림을 찾을 수 없습니다.'}), 404
+        
+        notification.is_read = True
+        db.session.commit()
+        print(f"[DEBUG] 알림 읽음 처리 - ID: {notification_id}")
+        return jsonify({'message': '알림이 읽음 처리되었습니다.'})
+    
+    except Exception as e:
+        print(f"[ERROR] 알림 읽음 처리 실패: {e}")
+        return jsonify({'message': '알림 읽음 처리에 실패했습니다.'}), 500
+
+@app.route('/notifications/<employee_id>/read-all', methods=['POST'])
+def mark_all_notifications_read(employee_id):
+    """모든 알림 읽음 처리"""
+    try:
+        updated_count = Notification.query.filter_by(user_id=employee_id, is_read=False)\
+            .update({'is_read': True})
+        db.session.commit()
+        print(f"[DEBUG] 모든 알림 읽음 처리 - 사용자: {employee_id}, 처리된 알림: {updated_count}개")
+        return jsonify({'message': f'{updated_count}개의 알림이 읽음 처리되었습니다.'})
+    
+    except Exception as e:
+        print(f"[ERROR] 모든 알림 읽음 처리 실패: {e}")
+        return jsonify({'message': '알림 읽음 처리에 실패했습니다.'}), 500
+
+@app.route('/notifications/<int:notification_id>', methods=['DELETE'])
+def delete_notification(notification_id):
+    """개별 알림 삭제"""
+    try:
+        notification = Notification.query.get(notification_id)
+        if not notification:
+            return jsonify({'message': '알림을 찾을 수 없습니다.'}), 404
+        
+        db.session.delete(notification)
+        db.session.commit()
+        print(f"[DEBUG] 알림 삭제 - ID: {notification_id}")
+        return jsonify({'message': '알림이 삭제되었습니다.'})
+    
+    except Exception as e:
+        print(f"[ERROR] 알림 삭제 실패: {e}")
+        return jsonify({'message': '알림 삭제에 실패했습니다.'}), 500
+
+@app.route('/notifications/<employee_id>/clear-read', methods=['DELETE'])
+def clear_read_notifications(employee_id):
+    """읽은 알림 모두 삭제"""
+    try:
+        deleted_count = Notification.query.filter_by(user_id=employee_id, is_read=True).count()
+        Notification.query.filter_by(user_id=employee_id, is_read=True).delete()
+        db.session.commit()
+        print(f"[DEBUG] 읽은 알림 전체 삭제 - 사용자: {employee_id}, 삭제된 알림: {deleted_count}개")
+        return jsonify({'message': f'{deleted_count}개의 읽은 알림이 삭제되었습니다.'})
+    
+    except Exception as e:
+        print(f"[ERROR] 읽은 알림 삭제 실패: {e}")
+        return jsonify({'message': '알림 삭제에 실패했습니다.'}), 500
+
 # --- 맛집 API ---
 @app.route('/restaurants', methods=['POST'])
 def add_restaurant():
@@ -1719,82 +1867,7 @@ def get_offline_data(employee_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# --- 알림 API ---
-@app.route('/notifications/<employee_id>', methods=['GET'])
-def get_notifications(employee_id):
-    """사용자의 알림 목록 조회"""
-    # 읽지 않은 알림 수
-    unread_count = Notification.query.filter_by(user_id=employee_id, is_read=False).count()
-    
-    # 최근 알림 목록 (최대 20개)
-    notifications = Notification.query.filter_by(user_id=employee_id).order_by(desc(Notification.created_at)).limit(20).all()
-    
-    return jsonify({
-        'unread_count': unread_count,
-        'notifications': [{
-            'id': n.id,
-            'type': n.type,
-            'title': n.title,
-            'message': n.message,
-            'related_id': n.related_id,
-            'related_type': n.related_type,
-            'is_read': n.is_read,
-            'created_at': n.created_at.strftime('%Y-%m-%d %H:%M')
-        } for n in notifications]
-    })
 
-@app.route('/notifications/<int:notification_id>/read', methods=['POST'])
-def mark_notification_read(notification_id):
-    """알림 읽음 처리"""
-    notification = Notification.query.get(notification_id)
-    if not notification:
-        return jsonify({'message': '알림을 찾을 수 없습니다.'}), 404
-    
-    notification.is_read = True
-    db.session.commit()
-    return jsonify({'message': '알림이 읽음 처리되었습니다.'})
-
-@app.route('/notifications/<employee_id>/read-all', methods=['POST'])
-def mark_all_notifications_read(employee_id):
-    """모든 알림 읽음 처리"""
-    Notification.query.filter_by(user_id=employee_id, is_read=False).update({'is_read': True})
-    db.session.commit()
-    return jsonify({'message': '모든 알림이 읽음 처리되었습니다.'})
-
-@app.route('/notifications/<int:notification_id>', methods=['DELETE'])
-def delete_notification(notification_id):
-    """개별 알림 삭제"""
-    notification = Notification.query.get(notification_id)
-    if not notification:
-        return jsonify({'message': '알림을 찾을 수 없습니다.'}), 404
-    
-    db.session.delete(notification)
-    db.session.commit()
-    return jsonify({'message': '알림이 삭제되었습니다.'})
-
-@app.route('/notifications/<employee_id>/clear-read', methods=['DELETE'])
-def clear_read_notifications(employee_id):
-    """읽은 알림 모두 삭제"""
-    Notification.query.filter_by(user_id=employee_id, is_read=True).delete()
-    db.session.commit()
-    return jsonify({'message': '읽은 알림이 모두 삭제되었습니다.'})
-
-def create_notification(user_id, type, title, message, related_id=None, related_type=None):
-    """알림 생성 헬퍼 함수"""
-    notification = Notification(user_id, type, title, message, related_id, related_type)
-    db.session.add(notification)
-    db.session.commit()
-    
-    # 실시간 알림 전송
-    socketio.emit('notification', {
-        'type': type,
-        'title': title,
-        'message': message,
-        'related_id': related_id,
-        'related_type': related_type
-    }, room=user_id)  # type: ignore
-    
-    print(f"[DEBUG] 알림 생성 - 사용자: {user_id}, 유형: {type}, 제목: {title}")
 
 # 포인트 시스템 유틸리티 함수들
 def calculate_level(points):
@@ -1827,15 +1900,16 @@ def earn_points(user_id, activity_type, points, description=None):
             db.session.add(activity)
             db.session.commit()
             
-            # 포인트 획득 알림
-            create_notification(
-                user_id=user_id,
-                type='points_earned',
-                title='포인트 획득',
-                message=f'{description or activity_type}으로 {points}포인트를 획득했습니다!',
-                related_id=points,
-                related_type='points'
-            )
+            # 포인트 획득 알림 생성 (큰 포인트일 때만)
+            if points >= 50:
+                create_notification(
+                    user_id=user_id,
+                    notification_type='points_earned',
+                    title='⭐ 포인트 획득',
+                    message=f'{points}포인트를 획득했습니다! ({description or activity_type})',
+                    related_id=None,
+                    related_type='points'
+                )
             
             return True
     except Exception as e:
@@ -1969,6 +2043,16 @@ def award_badge(user_id, badge):
         if user:
             user.current_badge = badge.badge_name
             db.session.commit()
+            
+            # 배지 획득 알림 생성
+            create_notification(
+                user_id=user_id,
+                notification_type='badge_earned',
+                title='🏆 배지 획득',
+                message=f'새로운 배지를 획득했습니다! "{badge.badge_name}"',
+                related_id=badge.id,
+                related_type='badge'
+            )
             
         return True
     except Exception as e:
@@ -2441,6 +2525,24 @@ def create_party():
         if badge:
             award_badge(host_employee_id, badge)
     
+    # 파티 초대 알림 생성 (호스트 제외한 멤버들에게)
+    if members_employee_ids:
+        member_list = members_employee_ids.split(',')
+        host_user = User.query.filter_by(employee_id=host_employee_id).first()
+        host_nickname = host_user.nickname if host_user else host_employee_id
+        
+        for member_id in member_list:
+            member_id = member_id.strip()
+            if member_id != host_employee_id:  # 호스트 본인 제외
+                create_notification(
+                    user_id=member_id,
+                    notification_type='party_invite',
+                    title='🎉 파티 초대',
+                    message=f'{host_nickname}님이 "{new_party.title}" 파티에 초대했습니다.',
+                    related_id=new_party.id,
+                    related_type='party'
+                )
+    
     return jsonify({'message': '파티가 생성되었습니다.', 'party_id': new_party.id}), 201
 
 @app.route('/parties/<int:party_id>', methods=['GET'])
@@ -2509,18 +2611,18 @@ def join_party(party_id):
                 elif '카페' in category or 'cafe' in category:
                     earn_category_points(employee_id, 'cafe', 'party_join', 15)
         
-        # 호스트에게 파티 참여 알림
-        if party.host_employee_id != employee_id:
-            user = User.query.filter_by(employee_id=employee_id).first()
-            if user:
-                create_notification(
-                    user_id=party.host_employee_id,
-                    type='party_join',
-                    title='파티 참여',
-                    message=f'{user.nickname}님이 "{party.title}" 파티에 참여했습니다.',
-                    related_id=party.id,
-                    related_type='party'
-                )
+        # 파티 호스트에게 참가 알림 생성
+        join_user = User.query.filter_by(employee_id=employee_id).first()
+        join_nickname = join_user.nickname if join_user else employee_id
+        
+        create_notification(
+            user_id=party.host_employee_id,
+            notification_type='party_join',
+            title='👥 파티 참가',
+            message=f'{join_nickname}님이 "{party.title}" 파티에 참가했습니다.',
+            related_id=party.id,
+            related_type='party'
+        )
     
     return jsonify({'message': '파티에 참여했습니다.'})
 
@@ -4033,18 +4135,6 @@ def add_friend():
     new_friendship.status = 'accepted'  # 바로 수락된 상태로 설정
     db.session.add(new_friendship)
     db.session.commit()
-    
-    # 친구 추가 알림 (친구에게)
-    requester = User.query.filter_by(employee_id=user_id).first()
-    if requester:
-        create_notification(
-            user_id=friend_id,
-            type='friend_added',
-            title='친구 추가',
-            message=f'{requester.nickname}님이 당신을 친구로 추가했습니다.',
-            related_id=user_id,
-            related_type='friend'
-        )
     
     return jsonify({'message': '친구가 추가되었습니다.'}), 201
 
