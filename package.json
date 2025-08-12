@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "lunch_app_frontend",
+    "slug": "lunch_app_frontend",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    }
+  },
+  "dependencies": {
+    "expo-sharing": "^13.1.5"
+  }
+}

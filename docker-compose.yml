@@ -1,0 +1,187 @@
+version: '3.8'
+
+services:
+  # Redis 서버 (캐싱 및 메시지 브로커)
+  redis:
+    image: redis:7-alpine
+    container_name: lunch_app_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 메인 Flask 애플리케이션
+  main_app:
+    build: .
+    container_name: lunch_app_main
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./lunch_app:/app/lunch_app
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery 워커 (비동기 작업 처리)
+  celery_worker:
+    build: .
+    container_name: lunch_app_celery_worker
+    command: celery -A celery_tasks worker --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./lunch_app:/app/lunch_app
+      - ./celery_tasks.py:/app/celery_tasks.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Beat (정기 작업 스케줄러)
+  celery_beat:
+    build: .
+    container_name: lunch_app_celery_beat
+    command: celery -A celery_tasks beat --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./celery_tasks.py:/app/celery_tasks.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 사용자 관리 마이크로서비스
+  user_service:
+    build: .
+    container_name: lunch_app_user_service
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=your-secret-key-here
+      - USER_DB_PATH=/app/user_service.db
+    volumes:
+      - ./microservices:/app/microservices
+      - user_service_data:/app
+    command: python microservices/user_service.py
+    restart: unless-stopped
+
+  # 파티 관리 마이크로서비스
+  party_service:
+    build: .
+    container_name: lunch_app_party_service
+    ports:
+      - "5002:5002"
+    environment:
+      - FLASK_ENV=production
+      - PARTY_DB_PATH=/app/party_service.db
+    volumes:
+      - ./microservices:/app/microservices
+      - party_service_data:/app
+    command: python microservices/party_service.py
+    restart: unless-stopped
+
+  # 추천 시스템 마이크로서비스
+  recommendation_service:
+    build: .
+    container_name: lunch_app_recommendation_service
+    ports:
+      - "5003:5003"
+    environment:
+      - FLASK_ENV=production
+      - RECOMMENDATION_DB_PATH=/app/recommendation_service.db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./microservices:/app/microservices
+      - recommendation_service_data:/app
+    command: python microservices/recommendation_service.py
+    restart: unless-stopped
+
+  # Nginx 리버스 프록시 (로드 밸런싱)
+  nginx:
+    image: nginx:alpine
+    container_name: lunch_app_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - main_app
+      - user_service
+      - party_service
+      - recommendation_service
+    restart: unless-stopped
+
+  # 모니터링 (Prometheus + Grafana)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: lunch_app_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lunch_app_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+  user_service_data:
+    driver: local
+  party_service_data:
+    driver: local
+  recommendation_service_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  default:
+    name: lunch_app_network
+    driver: bridge
