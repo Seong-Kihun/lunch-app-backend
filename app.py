@@ -1047,25 +1047,9 @@ def create_initial_data():
         if Restaurant.query.count() == 0:
             print("DEBUG: Loading 722 curated restaurant data...")
             try:
-                # excelReader.js의 하드코딩된 722개 식당 데이터
-                restaurants_data = [
-                    {'name': '지구마을', 'address': '경기도 성남시 수정구 시흥동 298 한국국제협력단 본관 1층 일부호', 'latitude': 37.41504641, 'longitude': 127.0993841, 'category': '한식'},
-                    {'name': '북창동순두부 판교파미어스몰점', 'address': '경기도 성남시 수정구 시흥동 322 2층 209호', 'latitude': 37.41340786, 'longitude': 127.0983592, 'category': '한식'},
-                    {'name': '시먼당 파미어스몰', 'address': '경기도 성남시 수정구 시흥동 322 판교아이스퀘어 2층 201-3호', 'latitude': 37.41340786, 'longitude': 127.0983592, 'category': '한식'},
-                    {'name': '봉구스밥버거', 'address': '경기도 성남시 수정구 시흥동 248-8 MHY, 1층', 'latitude': 37.41530973, 'longitude': 127.1017639, 'category': '한식'},
-                    {'name': '김밥천국 판교점', 'address': '경기도 성남시 수정구 시흥동 272-5 1층', 'latitude': 37.41438124, 'longitude': 127.1014436, 'category': '분식'},
-                    {'name': '맘스터치', 'address': '경기도 성남시 수정구 시흥동 272-7 1층일부호', 'latitude': 37.41387148, 'longitude': 127.1010811, 'category': '패스트푸드'},
-                    {'name': '스타벅스 판교점', 'address': '경기도 성남시 수정구 시흥동 246-28 1층 일부', 'latitude': 37.41637361, 'longitude': 127.102022, 'category': '카페'},
-                    {'name': '투썸플레이스 판교점', 'address': '경기도 성남시 수정구 시흥동 246-7 1층(일부)', 'latitude': 37.41638864, 'longitude': 127.1021476, 'category': '카페'},
-                    {'name': '본죽 판교점', 'address': '경기도 성남시 수정구 시흥동 280-4 지하2층(일부)', 'latitude': 37.41300286, 'longitude': 127.1004949, 'category': '한식'},
-                    {'name': '김밥천국 판교점', 'address': '경기도 성남시 수정구 시흥동 280-4 B107호', 'latitude': 37.41300286, 'longitude': 127.1004949, 'category': '분식'},
-                    # ... 더 많은 데이터는 생략하고 핵심만 표시
-                ]
+                from restaurant_data import RESTAURANT_DATA
                 
-                # 실제로는 excelReader.js의 전체 722개 데이터를 여기에 복사해야 함
-                # 지금은 예시로 몇 개만 표시
-                
-                for restaurant_data in restaurants_data:
+                for restaurant_data in RESTAURANT_DATA:
                     restaurant = Restaurant(
                         name=restaurant_data['name'],
                         category=restaurant_data['category'],
@@ -1076,8 +1060,7 @@ def create_initial_data():
                     db.session.add(restaurant)
                 
                 db.session.commit()
-                print(f"DEBUG: Added {len(restaurants_data)} curated restaurants successfully")
-                print("DEBUG: Note: Need to add all 722 restaurants from excelReader.js")
+                print(f"DEBUG: Added {len(RESTAURANT_DATA)} curated restaurants successfully")
                 
             except Exception as e:
                 print(f"DEBUG: Error loading curated restaurants: {e}")
