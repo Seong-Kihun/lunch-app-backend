@@ -20,6 +20,44 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
+# Root route to handle base URL requests
+@app.route('/')
+def root():
+    return jsonify({
+        'message': 'Lunch App API Server',
+        'status': 'running',
+        'version': '1.0.0'
+    })
+
+# Health check endpoint
+@app.route('/health')
+def health_check():
+    try:
+        # Test database connection
+        db.session.execute(text('SELECT 1'))
+        db_status = 'healthy'
+    except Exception as e:
+        db_status = f'unhealthy: {str(e)}'
+    
+    return jsonify({
+        'status': 'healthy',
+        'database': db_status,
+        'timestamp': datetime.now().isoformat()
+    })
+
+# Error handlers to ensure JSON responses
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found', 'message': 'The requested endpoint does not exist'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error', 'message': 'Something went wrong on the server'}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    return jsonify({'error': 'Unexpected error', 'message': str(e)}), 500
+
 # 추천 그룹 캐시 (사용자별, 날짜별)
 RECOMMENDATION_CACHE = {}
 CACHE_GENERATION_DATE = None
@@ -353,6 +391,13 @@ class User(db.Model):
     gender = db.Column(db.String(10), nullable=True)
     age_group = db.Column(db.String(20), nullable=True)
     main_dish_genre = db.Column(db.String(100), nullable=True)
+    # 추가 필드들
+    lunch_preference = db.Column(db.String(200), nullable=True)
+    allergies = db.Column(db.String(200), nullable=True)
+    preferred_time = db.Column(db.String(50), nullable=True)
+    food_preferences = db.Column(db.String(200), nullable=True)
+    frequent_areas = db.Column(db.String(200), nullable=True)
+    notification_settings = db.Column(db.String(200), nullable=True)
     # 포인트 시스템 필드들
     total_points = db.Column(db.Integer, default=0)
     current_level = db.Column(db.Integer, default=1)
@@ -648,6 +693,7 @@ class OfflineData(db.Model):
         self.data_json = data_json
 
 class DangolPot(db.Model):
+    __tablename__ = 'dangol_pot'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -697,7 +743,7 @@ class DangolPot(db.Model):
 # 단골파티 멤버 연결 테이블 (정규화)
 class DangolPotMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    dangolpot_id = db.Column(db.Integer, db.ForeignKey('dangolpot.id'), nullable=False)
+    dangolpot_id = db.Column(db.Integer, db.ForeignKey('dangol_pot.id'), nullable=False)
     employee_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -916,10 +962,6 @@ def initialize_database():
             print(f"ERROR: Database initialization failed: {e}")
             # 프로덕션에서는 로그 파일에 기록
 
-# Flask 2.3.3+ 호환성을 위한 초기화
-with app.app_context():
-    initialize_database()
-
 def create_initial_data():
     """초기 데이터 생성"""
     try:
@@ -946,6 +988,13 @@ def create_initial_data():
                 nickname=user_data['nickname'],
                 main_dish_genre=user_data['main_dish_genre']
             )
+            # 기본값 설정
+            user.lunch_preference = '새로운 맛집 탐방'
+            user.allergies = ''
+            user.preferred_time = '12:00'
+            user.food_preferences = user_data['main_dish_genre']
+            user.frequent_areas = '강남구,서초구'
+            user.notification_settings = 'push_notification,party_reminder'
             db.session.add(user)
         
         # 사용자 선호도 데이터 생성
@@ -976,220 +1025,11 @@ def create_initial_data():
         print(f"ERROR: Failed to create initial data: {e}")
         raise
 
-        # Restaurant 초기 데이터 추가
-        if Restaurant.query.count() == 0:
-            import pandas as pd
-            import os
-            # 여러 가능한 CSV 파일 경로 시도
-            possible_paths = [
-                os.path.join(os.path.dirname(__file__), 'data/restaurants.csv'),
-                os.path.join(os.path.dirname(__file__), 'restaurants.csv'),
-                'data/restaurants.csv',
-                'restaurants.csv'
-            ]
-            
-            csv_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    csv_path = path
-                    break
-            
-            if csv_path:
-                print(f"CSV 파일을 찾았습니다: {csv_path}")
-                df = pd.read_csv(csv_path, encoding='utf-8')
-                print(f"CSV 파일에서 {len(df)}개의 행을 읽었습니다.")
-                
-                # CSV 파일이 '사업장명', '소재지(지번)' 컬럼을 갖고 있다고 가정
-                for idx, row in df.iterrows():
-                    name = str(row.get('사업장명', '')).strip()
-                    address = str(row.get('소재지(지번)', '')).strip()
-                    if not name or not address:
-                        continue
-                    # 중복 체크 (이름+주소)
-                    exists = Restaurant.query.filter_by(name=name, address=address).first()
-                    if exists:
-                        continue
-                    
-                    # 주소를 좌표로 변환
-                    lat, lon = geocode_address(address)
-                    
-                    db.session.add(Restaurant(
-                        name=name,
-                        category='',
-                        address=address,
-                        latitude=lat,
-                        longitude=lon
-                    ))
-                db.session.commit()
-                print(f"CSV 파일에서 {Restaurant.query.count()}개의 식당을 등록했습니다.")
-            else:
-                # 기존 하드코딩 데이터 (엑셀 없을 때만)
-                restaurants_data = [
-                    {'name': '판교역 맛집', 'category': '한식', 'address': '경기도 성남시 분당구 판교역로 146'},
-                    {'name': '분당 맛집', 'category': '중식', 'address': '경기도 성남시 분당구 정자로 123'},
-                    {'name': '일식당', 'category': '일식', 'address': '경기도 성남시 분당구 판교로 456'},
-                    {'name': '양식점', 'category': '양식', 'address': '경기도 성남시 분당구 정자동 789'},
-                    {'name': '분식점', 'category': '분식', 'address': '경기도 성남시 분당구 판교동 321'},
-                ]
-                for restaurant_data in restaurants_data:
-                    lat, lon = geocode_address(restaurant_data['address'])
-                    db.session.add(Restaurant(
-                        name=restaurant_data['name'],
-                        category=restaurant_data['category'],
-                        address=restaurant_data['address'],
-                        latitude=lat,
-                        longitude=lon
-                    ))
-        
-        # 기본 배지 데이터 생성
-        if Badge.query.count() == 0:
-            badges = [
-                Badge('첫 파티', '🎉', 'first_party', 1, '첫 번째 파티를 생성했습니다'),
-                Badge('첫 리뷰', '✍️', 'first_review', 1, '첫 번째 리뷰를 작성했습니다'),
-                Badge('연속 로그인', '🔥', 'consecutive_login', 7, '7일 연속으로 로그인했습니다'),
-                Badge('포인트 마스터', '💎', 'total_points', 10000, '총 10,000포인트를 달성했습니다'),
-                Badge('양식 마스터', '🍝', 'western_master', 10, '양식 관련 활동 10회 달성'),
-                Badge('카페 헌터', '☕', 'cafe_hunter', 10, '카페 관련 활동 10회 달성'),
-                Badge('한식 전문가', '🍚', 'korean_expert', 10, '한식 관련 활동 10회 달성'),
-                Badge('중식 탐험가', '🥘', 'chinese_explorer', 10, '중식 관련 활동 10회 달성'),
-                Badge('일식 마니아', '🍣', 'japanese_lover', 10, '일식 관련 활동 10회 달성'),
-                Badge('랜덤런치 왕', '🏃‍♂️', 'random_lunch_king', 5, '랜덤런치 5회 참여'),
-                Badge('파티 플래너', '🎉', 'party_planner', 5, '파티 5회 생성'),
-                Badge('리뷰 작가', '✍️', 'review_writer', 10, '리뷰 10회 작성'),
-                Badge('친구 사랑', '🤝', 'friend_lover', 10, '친구 10명 추가')
-            ]
-            for badge in badges:
-                db.session.add(badge)
-            db.session.commit()
-        
-        # 성사된 랜덤런치 그룹 테스트 데이터 추가
-        if Party.query.filter_by(is_from_match=True).count() == 0:
-            test_parties = [
-                {
-                    'host_employee_id': 'KOICA001',
-                    'title': '랜덤 런치',
-                    'restaurant_name': '판교역 맛집',
-                    'restaurant_address': '경기도 성남시 분당구 판교역로 146',
-                    'party_date': '2024-01-15',
-                    'party_time': '12:00',
-                    'meeting_location': 'KOICA 본사',
-                    'max_members': 3,
-                    'is_from_match': True
-                },
-                {
-                    'host_employee_id': 'KOICA004',
-                    'title': '랜덤 런치',
-                    'restaurant_name': '분당 맛집',
-                    'restaurant_address': '경기도 성남시 분당구 정자로 123',
-                    'party_date': '2024-01-16',
-                    'party_time': '12:00',
-                    'meeting_location': 'KOICA 본사',
-                    'max_members': 2,
-                    'is_from_match': True
-                },
-                {
-                    'host_employee_id': 'KOICA007',
-                    'title': '랜덤 런치',
-                    'restaurant_name': '일식당',
-                    'restaurant_address': '경기도 성남시 분당구 판교로 456',
-                    'party_date': '2024-01-17',
-                    'party_time': '12:00',
-                    'meeting_location': 'KOICA 본사',
-                    'max_members': 2,
-                    'is_from_match': True
-                }
-            ]
-            
-            # 테스트 파티 생성
-            for party_data in test_parties:
-                db.session.add(Party(**party_data))
-            
-            db.session.commit()
+# Flask 2.3.3+ 호환성을 위한 초기화
+with app.app_context():
+    initialize_database()
 
 # --- API 엔드포인트 ---
-@app.route('/cafeteria/today', methods=['GET'])
-def get_today_menu(): return jsonify({'menu': ['제육볶음', '계란찜']})
-
-# --- 이벤트 (약속) 통합 API ---
-@app.route('/events/<employee_id>', methods=['GET'])
-def get_events(employee_id):
-    events = {}
-    today = get_seoul_today()
-    
-    # 파티/랜덤런치 조회
-    parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).all()  # type: ignore
-    for p in parties:
-        # 오늘 날짜 이전의 약속은 제외
-        if datetime.strptime(p.party_date, '%Y-%m-%d').date() < today:
-            continue
-        if p.party_date not in events: events[p.party_date] = []
-        member_ids = p.members_employee_ids.split(',') if p.members_employee_ids else []
-        other_member_ids = [mid for mid in member_ids if mid != employee_id]
-        users = User.query.filter(User.employee_id.in_(other_member_ids)).all()  # type: ignore
-        member_nicknames = [user.nickname for user in users]
-        all_users = User.query.filter(User.employee_id.in_(member_ids)).all()  # type: ignore
-        all_member_nicknames = [user.nickname for user in all_users]
-        events[p.party_date].append({
-            'type': '랜덤 런치' if p.is_from_match else '파티',
-            'id': p.id, 'title': p.title, 'restaurant': p.restaurant_name, 'address': p.restaurant_address,
-            'date': p.party_date, 'time': p.party_time, 'location': p.meeting_location,
-            'members': member_nicknames, 'all_members': all_member_nicknames
-        })
-    
-    # 개인 일정 조회 (반복 일정 포함)
-    schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
-    
-    # 개별 일정이 있는 날짜들을 추적 (반복 일정에서 제외할 날짜들)
-    individual_dates = set()
-    for s in schedules:
-        if not s.is_recurring and s.original_schedule_id:
-            # 개별 일정이고 원본 반복 일정이 있는 경우
-            individual_dates.add(s.schedule_date)
-    
-    for s in schedules:
-        # 과거 일정은 제외
-        if datetime.strptime(s.schedule_date, '%Y-%m-%d').date() < today:
-            continue
-            
-        if s.is_recurring and s.recurrence_type:
-            # 반복 일정: 미래 날짜들을 동적으로 생성
-            current_date = datetime.strptime(s.schedule_date, '%Y-%m-%d')
-            end_date = None
-            if s.recurrence_end_date:
-                end_date = datetime.strptime(s.recurrence_end_date, '%Y-%m-%d')
-            
-            generated_count = 0
-            max_generations = 52  # 최대 1년치 (52주)
-            
-            while generated_count < max_generations:
-                if current_date.date() >= today:
-                    date_str = current_date.strftime('%Y-%m-%d')
-                    if date_str in individual_dates:
-                        print(f"[DEBUG] 개별 일정이 있어서 반복 일정 제외: {date_str}")
-                    else:
-                        if date_str not in events: events[date_str] = []
-                        events[date_str].append({
-                            'type': '개인 일정', 'id': s.id, 'title': s.title, 'description': s.description, 'date': date_str,
-                            'is_recurring': True, 'recurrence_type': s.recurrence_type
-                        })
-                        generated_count += 1
-                
-                # 다음 반복 날짜 계산
-                current_date = get_next_recurrence_date(current_date, s.recurrence_type, s.recurrence_interval)
-                
-                # 종료 날짜 체크
-                if end_date and current_date > end_date:
-                    break
-        else:
-            # 일반 일정 (개별 일정 포함)
-            date_str = s.schedule_date
-            if date_str not in events: events[date_str] = []
-            events[date_str].append({
-                'type': '개인 일정', 'id': s.id, 'title': s.title, 'description': s.description, 'date': date_str,
-                'is_individual': s.original_schedule_id is not None
-            })
-    
-    return jsonify(events)
 
 # --- 개인 일정 API ---
 @app.route('/personal_schedules', methods=['POST'])
@@ -3762,9 +3602,24 @@ def get_my_chats(employee_id):
 
 @app.route('/users/<employee_id>', methods=['GET'])
 def get_user(employee_id):
-    user = User.query.filter_by(employee_id=employee_id).first()
-    if not user: return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
-    return jsonify({'nickname': user.nickname, 'lunch_preference': user.lunch_preference, 'gender': user.gender, 'age_group': user.age_group, 'main_dish_genre': user.main_dish_genre})
+    try:
+        print(f"DEBUG: Fetching user profile for employee_id: {employee_id}")
+        user = User.query.filter_by(employee_id=employee_id).first()
+        if not user: 
+            return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
+        
+        user_data = {
+            'nickname': user.nickname, 
+            'lunch_preference': user.lunch_preference, 
+            'gender': user.gender, 
+            'age_group': user.age_group, 
+            'main_dish_genre': user.main_dish_genre
+        }
+        print(f"DEBUG: User data: {user_data}")
+        return jsonify(user_data)
+    except Exception as e:
+        print(f"ERROR in get_user: {e}")
+        return jsonify({'error': '프로필 조회 중 오류가 발생했습니다.', 'details': str(e)}), 500
 
 @app.route('/users/batch', methods=['POST'])
 def get_users_batch():
@@ -4471,61 +4326,67 @@ def remove_friend():
 
 @app.route('/friends', methods=['GET'])
 def get_friends():
-    employee_id = request.args.get('employee_id')
-    if not employee_id:
-        return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
-    
-    # 내가 추가한 친구들만 조회 (일방적 관계)
-    friendships = Friendship.query.filter_by(
-        requester_id=employee_id,
-        status='accepted'
-    ).all()
-    
-    friends_data = []
-    today = get_seoul_today()
-    
-    for friendship in friendships:
-        friend = User.query.filter_by(employee_id=friendship.receiver_id).first()
+    try:
+        employee_id = request.args.get('employee_id')
+        if not employee_id:
+            return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
         
-        if friend:
-            # 마지막으로 함께 점심 먹은 날 계산 (dining_history 로직 참조)
-            last_party = Party.query.filter(
-                and_(
-                    or_(
-                        and_(Party.host_employee_id == employee_id, Party.members_employee_ids.contains(friend.employee_id)),
-                        and_(Party.host_employee_id == friend.employee_id, Party.members_employee_ids.contains(employee_id))
-                    ),
-                    Party.party_date < today.strftime('%Y-%m-%d')
-                )
-            ).order_by(desc(Party.party_date)).first()
+        print(f"DEBUG: Fetching friends for employee_id: {employee_id}")
+        
+        # 내가 추가한 친구들만 조회 (일방적 관계)
+        friendships = Friendship.query.filter_by(
+            requester_id=employee_id,
+            status='accepted'
+        ).all()
+        
+        friends_data = []
+        today = get_seoul_today()
+        
+        for friendship in friendships:
+            friend = User.query.filter_by(employee_id=friendship.receiver_id).first()
             
-            # 마지막 점심 날짜 계산
-            if last_party:
-                last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
-                days_diff = (today - last_party_date).days
+            if friend:
+                # 마지막으로 함께 점심 먹은 날 계산 (dining_history 로직 참조)
+                last_party = Party.query.filter(
+                    and_(
+                        or_(
+                            and_(Party.host_employee_id == employee_id, Party.members_employee_ids.contains(friend.employee_id)),
+                            and_(Party.host_employee_id == friend.employee_id, Party.members_employee_ids.contains(employee_id))
+                        ),
+                        Party.party_date < today.strftime('%Y-%m-%d')
+                    )
+                ).order_by(desc(Party.party_date)).first()
                 
-                if days_diff == 1:
-                    last_lunch = "어제"
-                elif days_diff <= 7:
-                    last_lunch = f"{days_diff}일 전"
-                elif days_diff <= 30:
-                    last_lunch = f"{days_diff//7}주 전"
+                # 마지막 점심 날짜 계산
+                if last_party:
+                    last_party_date = datetime.strptime(last_party.party_date, '%Y-%m-%d').date()
+                    days_diff = (today - last_party_date).days
+                    
+                    if days_diff == 1:
+                        last_lunch = "어제"
+                    elif days_diff <= 7:
+                        last_lunch = f"{days_diff}일 전"
+                    elif days_diff <= 30:
+                        last_lunch = f"{days_diff//7}주 전"
+                    else:
+                        last_lunch = "1달 이상 전"
                 else:
-                    last_lunch = "1달 이상 전"
-            else:
-                last_lunch = "처음"
-            
-            friends_data.append({
-                'employee_id': friend.employee_id,
-                'nickname': friend.nickname,
-                'lunch_preference': friend.lunch_preference,
-                'main_dish_genre': friend.main_dish_genre,
-                'last_lunch': last_lunch,
-                'allergies': friend.allergies,
-                'preferred_time': friend.preferred_time
-            })
-    
-    return jsonify(friends_data)
+                    last_lunch = "처음"
+                
+                friends_data.append({
+                    'employee_id': friend.employee_id,
+                    'nickname': friend.nickname,
+                    'lunch_preference': friend.lunch_preference,
+                    'main_dish_genre': friend.main_dish_genre,
+                    'last_lunch': last_lunch,
+                    'allergies': friend.allergies,
+                    'preferred_time': friend.preferred_time
+                })
+        
+        return jsonify(friends_data)
+    except Exception as e:
+        print(f"ERROR in get_friends: {e}")
+        return jsonify({'error': '친구 데이터 조회 중 오류가 발생했습니다.', 'details': str(e)}), 500
 
 @app.route('/friends/recommendations', methods=['GET'])
 def get_friend_recommendations():
