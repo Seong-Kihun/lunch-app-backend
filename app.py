@@ -286,6 +286,27 @@ def calculate_pattern_score_cached(user1, user2):
     
     return score
 
+def get_last_dining_together(user1_id, user2_id):
+    """두 사용자가 마지막으로 함께 식사한 날짜를 반환"""
+    try:
+        # 두 사용자가 모두 참여한 파티 중 가장 최근 것을 찾기
+        last_party = Party.query.filter(
+            and_(
+                or_(
+                    and_(Party.host_employee_id == user1_id, Party.members_employee_ids.contains(user2_id)),
+                    and_(Party.host_employee_id == user2_id, Party.members_employee_ids.contains(user1_id))
+                ),
+                Party.party_date < get_seoul_today().strftime('%Y-%m-%d')
+            )
+        ).order_by(desc(Party.party_date)).first()
+        
+        if last_party:
+            return last_party.party_date
+        return None
+    except Exception as e:
+        print(f"Error getting last dining together: {e}")
+        return None
+
 def get_korean_time():
     """한국 시간을 반환하는 함수"""
     korean_tz = datetime.now().replace(tzinfo=None) + timedelta(hours=9)
@@ -507,6 +528,7 @@ class Party(db.Model):
     meeting_location = db.Column(db.String(200), nullable=True)
     max_members = db.Column(db.Integer, nullable=False, default=4)
     is_from_match = db.Column(db.Boolean, default=False)
+    members_employee_ids = db.Column(db.Text, nullable=True)  # 쉼표로 구분된 멤버 ID 목록
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -515,7 +537,7 @@ class Party(db.Model):
         db.Index('idx_party_restaurant', 'restaurant_name'),
     )
     
-    def __init__(self, host_employee_id, title, restaurant_name, restaurant_address, party_date, party_time, meeting_location, max_members, is_from_match=False):
+    def __init__(self, host_employee_id, title, restaurant_name, restaurant_address, party_date, party_time, meeting_location, max_members, is_from_match=False, members_employee_ids=None):
         self.host_employee_id = host_employee_id
         self.title = title
         self.restaurant_name = restaurant_name
@@ -525,6 +547,7 @@ class Party(db.Model):
         self.meeting_location = meeting_location
         self.max_members = max_members
         self.is_from_match = is_from_match
+        self.members_employee_ids = members_employee_ids or host_employee_id  # 기본값으로 호스트 ID 설정
 
     @property
     def current_members(self):
