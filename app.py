@@ -1063,7 +1063,11 @@ def create_initial_data():
                         df = pd.read_csv(csv_path, encoding='euc-kr')
                         print(f"DEBUG: Successfully read CSV with euc-kr encoding")
                     
-                    print(f"DEBUG: Found {len(df)} restaurants in CSV")
+                    # 빈 행 제거 (모든 컬럼이 NaN이거나 빈 문자열인 행 제거)
+                    df = df.dropna(how='all')  # 모든 컬럼이 NaN인 행 제거
+                    df = df[df.iloc[:, 0].notna() & (df.iloc[:, 0].astype(str).str.strip() != '')]  # 첫 번째 컬럼이 비어있지 않은 행만 유지
+                    
+                    print(f"DEBUG: Found {len(df)} valid restaurants in CSV (removed empty rows)")
                     
                     # 데이터베이스에 로드
                     for index, row in df.iterrows():
