@@ -1053,6 +1053,80 @@ with app.app_context():
     initialize_database()
 
 # --- API 엔드포인트 ---
+@app.route('/events/<employee_id>', methods=['GET'])
+def get_events(employee_id):
+    """사용자의 이벤트(파티, 개인 일정) 조회"""
+    try:
+        events = {}
+        today = get_seoul_today()
+        
+        # 파티/랜덤런치 조회
+        parties = Party.query.filter(
+            or_(
+                Party.host_employee_id == employee_id,
+                Party.members_employee_ids.contains(employee_id)
+            )
+        ).all()
+        
+        for party in parties:
+            # 과거 파티는 제외
+            if datetime.strptime(party.party_date, '%Y-%m-%d').date() < today:
+                continue
+                
+            if party.party_date not in events:
+                events[party.party_date] = []
+                
+            # 파티 멤버 정보 가져오기
+            member_ids = party.members_employee_ids.split(',') if party.members_employee_ids else []
+            other_member_ids = [mid for mid in member_ids if mid != employee_id]
+            
+            # 다른 멤버들의 닉네임 가져오기
+            other_members = User.query.filter(User.employee_id.in_(other_member_ids)).all()
+            member_nicknames = [user.nickname for user in other_members]
+            
+            # 모든 멤버들의 닉네임 가져오기
+            all_members = User.query.filter(User.employee_id.in_(member_ids)).all()
+            all_member_nicknames = [user.nickname for user in all_members]
+            
+            events[party.party_date].append({
+                'type': '랜덤 런치' if party.is_from_match else '파티',
+                'id': party.id,
+                'title': party.title,
+                'restaurant': party.restaurant_name,
+                'address': party.restaurant_address,
+                'date': party.party_date,
+                'time': party.party_time,
+                'location': party.meeting_location,
+                'members': member_nicknames,
+                'all_members': all_member_nicknames
+            })
+        
+        # 개인 일정 조회
+        schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
+        
+        for schedule in schedules:
+            # 과거 일정은 제외
+            if datetime.strptime(schedule.schedule_date, '%Y-%m-%d').date() < today:
+                continue
+                
+            if schedule.schedule_date not in events:
+                events[schedule.schedule_date] = []
+                
+            events[schedule.schedule_date].append({
+                'type': '개인 일정',
+                'id': schedule.id,
+                'title': schedule.title,
+                'description': schedule.description,
+                'date': schedule.schedule_date,
+                'is_recurring': schedule.is_recurring,
+                'recurrence_type': schedule.recurrence_type
+            })
+        
+        return jsonify(events)
+        
+    except Exception as e:
+        print(f"Error in get_events: {e}")
+        return jsonify({'error': '이벤트 조회 중 오류가 발생했습니다.', 'details': str(e)}), 500
 
 # --- 개인 일정 API ---
 @app.route('/personal_schedules', methods=['POST'])
