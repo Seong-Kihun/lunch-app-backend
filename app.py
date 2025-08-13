@@ -1043,27 +1043,80 @@ def create_initial_data():
         db.session.commit()
         print("DEBUG: Initial data created successfully")
         
-        # 정확한 722개 맛집 데이터 로드 (excelReader.js의 하드코딩된 데이터와 동일)
+        # 정확한 722개 맛집 데이터 로드 (CSV 파일에서)
         if Restaurant.query.count() == 0:
-            print("DEBUG: Loading 722 curated restaurant data...")
+            print("DEBUG: Loading 722 curated restaurant data from CSV...")
             try:
-                from restaurant_data import RESTAURANT_DATA
+                import pandas as pd
+                import os
                 
-                for restaurant_data in RESTAURANT_DATA:
-                    restaurant = Restaurant(
-                        name=restaurant_data['name'],
-                        category=restaurant_data['category'],
-                        address=restaurant_data['address'],
-                        latitude=restaurant_data['latitude'],
-                        longitude=restaurant_data['longitude']
-                    )
-                    db.session.add(restaurant)
+                # CSV 파일 경로
+                csv_path = os.path.join(os.path.dirname(__file__), 'data', 'restaurants.csv')
                 
-                db.session.commit()
-                print(f"DEBUG: Added {len(RESTAURANT_DATA)} curated restaurants successfully")
-                
+                if os.path.exists(csv_path):
+                    # CSV 파일 읽기 (cp949 인코딩으로 시도)
+                    try:
+                        df = pd.read_csv(csv_path, encoding='cp949')
+                        print(f"DEBUG: Successfully read CSV with cp949 encoding")
+                    except UnicodeDecodeError:
+                        # cp949 실패시 다른 인코딩 시도
+                        df = pd.read_csv(csv_path, encoding='euc-kr')
+                        print(f"DEBUG: Successfully read CSV with euc-kr encoding")
+                    
+                    print(f"DEBUG: Found {len(df)} restaurants in CSV")
+                    
+                    # 데이터베이스에 로드
+                    for index, row in df.iterrows():
+                        try:
+                            # CSV 컬럼명 확인 및 데이터 추출
+                            name = str(row.iloc[0]) if pd.notna(row.iloc[0]) else 'Unknown'
+                            address = str(row.iloc[1]) if pd.notna(row.iloc[1]) else ''
+                            latitude = float(row.iloc[2]) if pd.notna(row.iloc[2]) else 37.4452
+                            longitude = float(row.iloc[3]) if pd.notna(row.iloc[3]) else 127.1023
+                            
+                            # 카테고리 추정 (이름에서)
+                            category = '기타'
+                            if any(keyword in name for keyword in ['카페', '커피', '스타벅스', '투썸']):
+                                category = '카페'
+                            elif any(keyword in name for keyword in ['치킨', 'BBQ', '교촌', '네네']):
+                                category = '치킨'
+                            elif any(keyword in name for keyword in ['피자', '도미노', '피자헛']):
+                                category = '피자'
+                            elif any(keyword in name for keyword in ['편의점', '씨유', 'GS25', '세븐일레븐']):
+                                category = '편의점'
+                            elif any(keyword in name for keyword in ['베이커리', '파리바게뜨', '뚜레쥬르']):
+                                category = '베이커리'
+                            elif any(keyword in name for keyword in ['일식', '스시', '라멘']):
+                                category = '일식'
+                            elif any(keyword in name for keyword in ['중식', '짜장면', '탕수육']):
+                                category = '중식'
+                            elif any(keyword in name for keyword in ['양식', '파스타', '스테이크']):
+                                category = '양식'
+                            else:
+                                category = '한식'
+                            
+                            restaurant = Restaurant(
+                                name=name,
+                                category=category,
+                                address=address,
+                                latitude=latitude,
+                                longitude=longitude
+                            )
+                            db.session.add(restaurant)
+                            
+                        except Exception as e:
+                            print(f"DEBUG: Error processing restaurant {index}: {e}")
+                            continue
+                    
+                    db.session.commit()
+                    final_count = Restaurant.query.count()
+                    print(f"DEBUG: Successfully loaded {final_count} restaurants from CSV")
+                    
+                else:
+                    print(f"DEBUG: CSV file not found at {csv_path}")
+                    
             except Exception as e:
-                print(f"DEBUG: Error loading curated restaurants: {e}")
+                print(f"DEBUG: Error loading restaurants from CSV: {e}")
                 db.session.rollback()
         
     except Exception as e:
