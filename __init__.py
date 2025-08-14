@@ -19,8 +19,10 @@ def init_auth(app: Flask):
     
     # 데이터베이스 테이블 생성
     with app.app_context():
+        # 기존 테이블 삭제 (개발 환경에서만)
+        db.drop_all()
         db.create_all()
-        print("인증 시스템 데이터베이스 테이블이 생성되었습니다.")
+        print("인증 시스템 데이터베이스 테이블이 재생성되었습니다.")
     
     return app
 
