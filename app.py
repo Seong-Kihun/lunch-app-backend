@@ -11,20 +11,24 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# 인증 시스템 import
-try:
-    from auth import init_auth
-    AUTH_AVAILABLE = True
-except ImportError:
-    print("Warning: 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
-    AUTH_AVAILABLE = False
+# 인증 시스템 import (임시 비활성화)
+# try:
+#     from auth import init_auth
+#     AUTH_AVAILABLE = True
+# except ImportError:
+#     print("Warning: 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
+#     AUTH_AVAILABLE = False
 
-# 인증 시스템의 User 모델과 구분하기 위한 별칭
-try:
-    from auth.models import User as AuthUser
-    AUTH_USER_AVAILABLE = True
-except ImportError:
-    AUTH_USER_AVAILABLE = False
+AUTH_AVAILABLE = False  # 임시로 비활성화
+
+# 인증 시스템의 User 모델과 구분하기 위한 별칭 (임시 비활성화)
+# try:
+#     from auth.models import User as AuthUser
+#     AUTH_USER_AVAILABLE = True
+# except ImportError:
+#     AUTH_USER_AVAILABLE = False
+
+AUTH_USER_AVAILABLE = False  # 임시로 비활성화
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -33,26 +37,28 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
 
-# 인증 시스템 초기화
-if AUTH_AVAILABLE:
-    try:
-        app = init_auth(app)
-        print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
-    except Exception as e:
-        print(f"⚠️ 인증 시스템 초기화 실패: {e}")
-        AUTH_AVAILABLE = False
+# 인증 시스템 초기화 (임시 비활성화)
+# if AUTH_AVAILABLE:
+#     try:
+#         app = init_auth(app)
+#         print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
+#     except Exception as e:
+#         print(f"⚠️ 인증 시스템 초기화 실패: {e}")
+#         AUTH_AVAILABLE = False
 
-# 데이터베이스 초기화
-if AUTH_AVAILABLE:
-    # 인증 시스템이 있으면 해당 db 객체 사용
-    from auth import db as auth_db
-    db = auth_db
-    print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
-else:
-    # 인증 시스템이 없으면 새로 생성
-    db = SQLAlchemy(app)
-    db.init_app(app)
-    print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
+print("ℹ️ 인증 시스템 초기화를 건너뜁니다.")
+
+# 데이터베이스 초기화 (임시 비활성화)
+# if AUTH_AVAILABLE:
+#     # 인증 시스템이 있으면 해당 db 객체 사용
+#     from auth import db as auth_db
+#     db = auth_db
+#     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
+# else:
+#     # 인증 시스템이 없으면 새로 생성
+db = SQLAlchemy(app)
+db.init_app(app)
+print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
@@ -70,13 +76,8 @@ def root():
 def health_check():
     try:
         # Test database connection
-        if AUTH_AVAILABLE:
-            from auth import db as auth_db
-            auth_db.session.execute(text('SELECT 1'))
-            db_status = 'healthy (with auth)'
-        else:
-            db.session.execute(text('SELECT 1'))
-            db_status = 'healthy (without auth)'
+        db.session.execute(text('SELECT 1'))
+        db_status = 'healthy (without auth)'
     except Exception as e:
         db_status = f'unhealthy: {str(e)}'
     
