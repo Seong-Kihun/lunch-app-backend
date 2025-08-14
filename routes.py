@@ -144,8 +144,7 @@ def register_user():
         user = User(
             email=data.get('email'),  # 임시 토큰에서 이메일 추출 필요
             nickname=nickname,
-            employee_id=AuthUtils.generate_employee_id(),
-            points=0
+            employee_id=AuthUtils.generate_employee_id()
         )
         
         db.session.add(user)
