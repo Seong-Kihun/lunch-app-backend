@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta
 import re
-from .models import User, db
-from .utils import AuthUtils, require_auth
-from .email_service import email_service
-from ..config.auth_config import AuthConfig
+from auth.models import User, db
+from auth.utils import AuthUtils, require_auth
+from auth.email_service import email_service
+from config.auth_config import AuthConfig
 
 # 인증 블루프린트 생성
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
