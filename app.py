@@ -11,13 +11,49 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# 인증 시스템 import
+try:
+    from auth import init_auth
+    AUTH_AVAILABLE = True
+except ImportError:
+    print("Warning: 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
+    AUTH_AVAILABLE = False
+
+# 인증 시스템의 User 모델과 구분하기 위한 별칭
+try:
+    from auth.models import User as AuthUser
+    AUTH_USER_AVAILABLE = True
+except ImportError:
+    AUTH_USER_AVAILABLE = False
+
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your-secret-key-here'
-db = SQLAlchemy(app)
+app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
+
+# 인증 시스템 초기화
+if AUTH_AVAILABLE:
+    try:
+        app = init_auth(app)
+        print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
+    except Exception as e:
+        print(f"⚠️ 인증 시스템 초기화 실패: {e}")
+        AUTH_AVAILABLE = False
+
+# 데이터베이스 초기화
+if AUTH_AVAILABLE:
+    # 인증 시스템이 있으면 해당 db 객체 사용
+    from auth import db as auth_db
+    db = auth_db
+    print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
+else:
+    # 인증 시스템이 없으면 새로 생성
+    db = SQLAlchemy(app)
+    db.init_app(app)
+    print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Root route to handle base URL requests
@@ -34,15 +70,29 @@ def root():
 def health_check():
     try:
         # Test database connection
-        db.session.execute(text('SELECT 1'))
-        db_status = 'healthy'
+        if AUTH_AVAILABLE:
+            from auth import db as auth_db
+            auth_db.session.execute(text('SELECT 1'))
+            db_status = 'healthy (with auth)'
+        else:
+            db.session.execute(text('SELECT 1'))
+            db_status = 'healthy (without auth)'
     except Exception as e:
         db_status = f'unhealthy: {str(e)}'
     
     return jsonify({
         'status': 'healthy',
         'database': db_status,
+        'auth_system': AUTH_AVAILABLE,
         'timestamp': datetime.now().isoformat()
+    })
+
+# 인증 시스템 상태 확인 엔드포인트
+@app.route('/auth/status')
+def auth_status():
+    return jsonify({
+        'auth_available': AUTH_AVAILABLE,
+        'message': '인증 시스템 상태 확인'
     })
 
 # Error handlers to ensure JSON responses
@@ -405,43 +455,19 @@ def get_notification_icon(notification_type):
     return icons.get(notification_type, '📄')
 
 # --- 데이터베이스 모델 정의 ---
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    employee_id = db.Column(db.String(50), unique=True, nullable=False)
-    nickname = db.Column(db.String(50), nullable=True)
-    gender = db.Column(db.String(10), nullable=True)
-    age_group = db.Column(db.String(20), nullable=True)
-    main_dish_genre = db.Column(db.String(100), nullable=True)
-    # 추가 필드들
-    lunch_preference = db.Column(db.String(200), nullable=True)
-    allergies = db.Column(db.String(200), nullable=True)
-    preferred_time = db.Column(db.String(50), nullable=True)
-    food_preferences = db.Column(db.String(200), nullable=True)
-    frequent_areas = db.Column(db.String(200), nullable=True)
-    notification_settings = db.Column(db.String(200), nullable=True)
-    # 포인트 시스템 필드들
-    total_points = db.Column(db.Integer, default=0)
-    current_level = db.Column(db.Integer, default=1)
-    current_badge = db.Column(db.String(50), nullable=True)
-    consecutive_login_days = db.Column(db.Integer, default=0)
-    last_login_date = db.Column(db.Date, nullable=True)
-    
-    __table_args__ = (
-        db.Index('idx_user_employee_id', 'employee_id'),
-    )
-    
-    def __init__(self, employee_id, nickname, main_dish_genre):
-        self.employee_id = employee_id
-        self.nickname = nickname
-        self.main_dish_genre = main_dish_genre
-        self.total_points = 0
-        self.current_level = 1
-        self.consecutive_login_days = 0
+# 인증 시스템의 User 모델을 사용합니다.
+# 기존 User 관련 모델들은 auth/models.py에 정의되어 있습니다.
 
-# 사용자 선호도 테이블 (정규화)
+# 인증 시스템의 db 객체 사용
+from auth import db
+
+# 인증 시스템의 User 모델을 사용
+from auth.models import User
+
+# UserPreference 클래스 정의 (기존 기능 유지)
 class UserPreference(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    user_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     preference_type = db.Column(db.String(50), nullable=False)  # 'lunch_preference', 'food_preference', 'allergies', 'preferred_time', 'frequent_areas'
     preference_value = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -458,7 +484,7 @@ class UserPreference(db.Model):
 # 사용자 알림 설정 테이블
 class UserNotificationSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    user_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     setting_type = db.Column(db.String(50), nullable=False)  # 'push_notification', 'email_notification', 'party_reminder'
     setting_value = db.Column(db.Boolean, default=True)
     
@@ -519,7 +545,7 @@ class Review(db.Model):
 
 class Party(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    host_employee_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    host_employee_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     title = db.Column(db.String(100), nullable=False)
     restaurant_name = db.Column(db.String(100), nullable=False)
     restaurant_address = db.Column(db.String(200), nullable=True)
@@ -579,7 +605,7 @@ class Party(db.Model):
 class PartyMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     party_id = db.Column(db.Integer, db.ForeignKey('party.id'), nullable=False)
-    employee_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    employee_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_host = db.Column(db.Boolean, default=False)
     
@@ -722,7 +748,7 @@ class DangolPot(db.Model):
     description = db.Column(db.Text, nullable=True)
     tags = db.Column(db.String(200), nullable=True)
     category = db.Column(db.String(50), nullable=True)
-    host_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    host_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -767,7 +793,7 @@ class DangolPot(db.Model):
 class DangolPotMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     dangolpot_id = db.Column(db.Integer, db.ForeignKey('dangol_pot.id'), nullable=False)
-    employee_id = db.Column(db.String(50), db.ForeignKey('user.employee_id'), nullable=False)
+    employee_id = db.Column(db.String(50), db.ForeignKey('users.employee_id'), nullable=False)
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -1007,11 +1033,12 @@ def create_initial_data():
         # User 생성
         for user_data in users_data:
             user = User(
-                employee_id=user_data['employee_id'],
+                email=f"{user_data['employee_id']}@koica.go.kr",  # 임시 이메일
                 nickname=user_data['nickname'],
-                main_dish_genre=user_data['main_dish_genre']
+                employee_id=user_data['employee_id']
             )
-            # 기본값 설정
+            # 추가 필드 설정
+            user.main_dish_genre = user_data['main_dish_genre']
             user.lunch_preference = '새로운 맛집 탐방'
             user.allergies = ''
             user.preferred_time = '12:00'
