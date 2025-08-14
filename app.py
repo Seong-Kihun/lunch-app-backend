@@ -11,11 +11,21 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# 인증 시스템 완전 비활성화 (임시)
-AUTH_AVAILABLE = False
-AUTH_USER_AVAILABLE = False
+# 인증 시스템 활성화
+try:
+    from auth import init_auth
+    AUTH_AVAILABLE = True
+    print("✅ 인증 시스템을 불러왔습니다.")
+except ImportError as e:
+    print(f"⚠️ 인증 시스템을 불러올 수 없습니다: {e}")
+    AUTH_AVAILABLE = False
 
-print("🚀 기본 모드로 실행됩니다. 인증 시스템은 비활성화되어 있습니다.")
+AUTH_USER_AVAILABLE = AUTH_AVAILABLE
+
+if AUTH_AVAILABLE:
+    print("🚀 인증 시스템과 함께 실행됩니다.")
+else:
+    print("🚀 기본 모드로 실행됩니다. 인증 시스템은 비활성화되어 있습니다.")
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -24,12 +34,27 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
 
-# 인증 시스템 초기화 완전 제거
-print("✅ 인증 시스템 초기화를 건너뜁니다.")
+# 인증 시스템 초기화
+if AUTH_AVAILABLE:
+    try:
+        app = init_auth(app)
+        print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
+    except Exception as e:
+        print(f"⚠️ 인증 시스템 초기화 실패: {e}")
+        AUTH_AVAILABLE = False
+else:
+    print("ℹ️ 인증 시스템 초기화를 건너뜁니다.")
 
-# 데이터베이스 초기화 (기본 모드)
-db = SQLAlchemy(app)
-print("✅ 기본 데이터베이스 객체를 생성했습니다.")
+# 데이터베이스 초기화
+if AUTH_AVAILABLE:
+    # 인증 시스템이 있으면 해당 db 객체 사용
+    from auth import db as auth_db
+    db = auth_db
+    print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
+else:
+    # 인증 시스템이 없으면 새로 생성
+    db = SQLAlchemy(app)
+    print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
