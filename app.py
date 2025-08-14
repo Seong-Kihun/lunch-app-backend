@@ -29,7 +29,6 @@ print("✅ 인증 시스템 초기화를 건너뜁니다.")
 
 # 데이터베이스 초기화 (기본 모드)
 db = SQLAlchemy(app)
-db.init_app(app)
 print("✅ 기본 데이터베이스 객체를 생성했습니다.")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
