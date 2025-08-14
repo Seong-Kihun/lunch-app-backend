@@ -4,8 +4,8 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from flask import current_app
-from .models import User, MagicLinkToken, RefreshToken, RevokedToken
-from ..config.auth_config import AuthConfig
+from auth.models import User, MagicLinkToken, RefreshToken, RevokedToken
+from config.auth_config import AuthConfig
 
 class AuthUtils:
     """인증 관련 유틸리티 클래스"""
