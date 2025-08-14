@@ -4,7 +4,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 import hashlib
 
-db = SQLAlchemy()
+# db 객체는 __init__.py에서 가져옴
+from . import db
 
 class User(db.Model):
     """사용자 모델"""
