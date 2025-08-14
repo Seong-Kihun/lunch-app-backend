@@ -131,7 +131,7 @@ class EmailService:
             <div class="container">
                 <div class="header">
                     <div class="logo">🍽️ 밥플떼기</div>
-                    <div class="subtitle">동료와 즐거운 점심</div>
+                    <div class="subtitle">점심이 설레는 이유</div>
                 </div>
                 
                 <div class="content">
