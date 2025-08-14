@@ -11,12 +11,13 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# 인증 시스템 import
+# 인증 시스템 import (Render 배포 환경 최적화)
 try:
     from auth import init_auth
     AUTH_AVAILABLE = True
+    print("✅ 인증 시스템을 찾았습니다.")
 except ImportError:
-    print("Warning: 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
+    print("⚠️ 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
     AUTH_AVAILABLE = False
 
 # 인증 시스템의 User 모델과 구분하기 위한 별칭
@@ -50,7 +51,7 @@ try:
     from auth import db
     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
     
-    # 데이터베이스 초기화 (이미 init_app이 호출되었는지 확인)
+    # 데이터베이스 초기화 (중복 등록 방지)
     try:
         db.init_app(app)
         print("✅ 데이터베이스 초기화 완료")
@@ -58,6 +59,7 @@ try:
         if "already been registered" in str(e):
             print("✅ 데이터베이스가 이미 초기화되었습니다.")
         else:
+            print(f"⚠️ 데이터베이스 초기화 오류: {e}")
             raise e
     
     # 데이터베이스 테이블 생성
