@@ -4,8 +4,9 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from flask import current_app
-from auth.models import User, MagicLinkToken, RefreshToken, RevokedToken
+from .models import User, MagicLinkToken, RefreshToken, RevokedToken
 from config.auth_config import AuthConfig
+from . import db  # db 객체 import 추가
 
 class AuthUtils:
     """인증 관련 유틸리티 클래스"""
@@ -57,7 +58,6 @@ class AuthUtils:
             expires_at=expires_at
         )
         
-        from . import db
         db.session.add(magic_token)
         db.session.commit()
         
@@ -78,10 +78,9 @@ class AuthUtils:
         if not magic_token:
             return None
         
-        # 만료 여부 확인
+                # 만료 여부 확인
         if magic_token.is_expired():
             # 만료된 토큰 삭제
-            from . import db
             db.session.delete(magic_token)
             db.session.commit()
             return None
@@ -91,7 +90,6 @@ class AuthUtils:
         
         # 토큰 사용 처리
         magic_token.is_used = True
-        from . import db
         db.session.commit()
         
         return {
