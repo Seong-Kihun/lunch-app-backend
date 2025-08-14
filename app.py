@@ -42,17 +42,36 @@ if AUTH_AVAILABLE:
         print(f"⚠️ 인증 시스템 초기화 실패: {e}")
         AUTH_AVAILABLE = False
 
-# 데이터베이스 초기화
-if AUTH_AVAILABLE:
-    # 인증 시스템이 있으면 해당 db 객체 사용
-    from auth import db as auth_db
-    db = auth_db
+# 데이터베이스 초기화 - 인증 시스템과 통합
+try:
+    # 인증 시스템의 db 객체를 사용
+    from auth import db
     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
-else:
+    
+    # 데이터베이스 초기화
+    db.init_app(app)
+    
+    # 데이터베이스 테이블 생성
+    with app.app_context():
+        try:
+            db.create_all()
+            print("✅ 데이터베이스 테이블이 생성되었습니다.")
+        except Exception as e:
+            print(f"⚠️ 데이터베이스 테이블 생성 실패: {e}")
+            
+except ImportError:
     # 인증 시스템이 없으면 새로 생성
     db = SQLAlchemy(app)
     db.init_app(app)
     print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
+    
+    # 데이터베이스 테이블 생성
+    with app.app_context():
+        try:
+            db.create_all()
+            print("✅ 데이터베이스 테이블이 생성되었습니다.")
+        except Exception as e:
+            print(f"⚠️ 데이터베이스 테이블 생성 실패: {e}")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
