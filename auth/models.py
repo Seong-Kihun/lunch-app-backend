@@ -4,8 +4,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 import hashlib
 
-# db 객체는 __init__.py에서 가져옴
-from . import db
+# db 객체 직접 생성
+from flask_sqlalchemy import SQLAlchemy
+db = SQLAlchemy()
 
 class User(db.Model):
     """사용자 모델"""
