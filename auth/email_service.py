@@ -20,7 +20,7 @@ class EmailService:
         """매직링크 이메일 발송"""
         try:
             # 이메일 내용 구성
-            subject = f'[발플때기] 시작하기'
+            subject = f'[밥플떼기] 시작하기'
             
             # HTML 이메일 템플릿
             html_content = self._create_magic_link_html(email, token, nickname)
@@ -30,7 +30,7 @@ class EmailService:
             
             # 이메일 메시지 생성
             msg = MIMEMultipart('alternative')
-            msg['From'] = f'발플때기 <{self.username}>'
+            msg['From'] = f'밥플떼기 <{self.username}>'
             msg['To'] = email
             msg['Subject'] = subject
             
@@ -58,7 +58,7 @@ class EmailService:
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>발플때기 시작하기</title>
+            <title>밥플떼기 시작하기</title>
             <style>
                 body {{
                     font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif;
@@ -130,13 +130,13 @@ class EmailService:
         <body>
             <div class="container">
                 <div class="header">
-                    <div class="logo">🍽️ 발플때기</div>
+                    <div class="logo">🍽️ 밥플떼기</div>
                     <div class="subtitle">동료와 즐거운 점심</div>
                 </div>
                 
                 <div class="content">
                     <p>{greeting}</p>
-                    <p><strong>발플때기</strong>를 시작하려면 아래 버튼을 클릭해주세요.</p>
+                    <p><strong>밥플떼기</strong>를 시작하려면 아래 버튼을 클릭해주세요.</p>
                     
                     <div style="text-align: center;">
                         <a href="{magic_link_url}" class="button">
@@ -154,7 +154,7 @@ class EmailService:
                 
                 <div class="footer">
                     <p>이 메일은 {email}로 발송되었습니다.</p>
-                    <p>© 2024 발플때기. All rights reserved.</p>
+                    <p>© 2024 밥플떼기. All rights reserved.</p>
                 </div>
             </div>
         </body>
@@ -172,7 +172,7 @@ class EmailService:
         text_template = f"""
 {greeting}
 
-발플때기'를 시작하려면 아래 링크를 클릭해주세요:
+밥플떼기'를 시작하려면 아래 링크를 클릭해주세요:
 
 {magic_link_url}
 
@@ -183,7 +183,7 @@ class EmailService:
 
 이 메일은 {email}로 발송되었습니다.
 
-© 2024 발플때기. All rights reserved.
+© 2024 밥플떼기. All rights reserved.
         """
         
         return text_template.strip()
