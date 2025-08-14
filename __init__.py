@@ -7,11 +7,7 @@ from auth.email_service import email_service
 def init_auth(app: Flask):
     """인증 시스템 초기화"""
     
-    # 데이터베이스 설정
-    app.config['SQLALCHEMY_DATABASE_URI'] = app.config.get('SQLALCHEMY_DATABASE_URI', 'sqlite:///site.db')
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
-    # 블루프린트 등록
+    # 블루프린트만 등록 (데이터베이스는 app.py에서 처리)
     app.register_blueprint(auth_bp)
     
     print("인증 시스템 블루프린트가 등록되었습니다.")
