@@ -459,11 +459,29 @@ def get_notification_icon(notification_type):
 # 인증 시스템의 User 모델을 사용합니다.
 # 기존 User 관련 모델들은 auth/models.py에 정의되어 있습니다.
 
-# 인증 시스템의 db 객체 사용
-from auth import db
+# 인증 시스템 임시 비활성화로 인해 기본 db 객체 사용
+# from auth import db
+# from auth.models import User
 
-# 인증 시스템의 User 모델을 사용
-from auth.models import User
+# 임시로 기본 User 모델 정의 (인증 시스템 활성화 시 제거)
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    employee_id = db.Column(db.String(50), primary_key=True)
+    nickname = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(100), nullable=True)
+    gender = db.Column(db.String(10), nullable=True)
+    age_group = db.Column(db.String(20), nullable=True)
+    main_dish_genre = db.Column(db.String(100), nullable=True)
+    lunch_preference = db.Column(db.String(100), nullable=True)
+    total_points = db.Column(db.Integer, default=0)
+    matching_status = db.Column(db.String(20), default='available')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, employee_id, nickname, email=None):
+        self.employee_id = employee_id
+        self.nickname = nickname
+        self.email = email
 
 # UserPreference 클래스 정의 (기존 기능 유지)
 class UserPreference(db.Model):
