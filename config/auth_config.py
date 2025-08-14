@@ -20,7 +20,7 @@ class AuthConfig:
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'your-app-password')
     
     # 앱 설정
-    APP_NAME = '발플때기'
+    APP_NAME = '밥플떼기'
     APP_DOMAIN = os.environ.get('APP_DOMAIN', 'https://api.bal-plateggi.com')
     FRONTEND_DOMAIN = os.environ.get('FRONTEND_DOMAIN', 'https://app.bal-plateggi.com')
     
