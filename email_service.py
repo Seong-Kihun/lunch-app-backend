@@ -4,7 +4,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from typing import Optional
-from ..config.auth_config import AuthConfig
+from config.auth_config import AuthConfig
 
 class EmailService:
     """이메일 발송 서비스"""
