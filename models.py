@@ -49,6 +49,28 @@ class User(db.Model):
     def __repr__(self):
         return f'<User {self.email}>'
     
+    def __init__(self, email, nickname, employee_id):
+        self.email = email
+        self.nickname = nickname
+        self.employee_id = employee_id
+        # 기본값 설정
+        self.gender = None
+        self.age_group = None
+        self.main_dish_genre = None
+        self.lunch_preference = '새로운 맛집 탐방'
+        self.allergies = ''
+        self.preferred_time = '12:00'
+        self.food_preferences = None
+        self.frequent_areas = '강남구,서초구'
+        self.notification_settings = 'push_notification,party_reminder'
+        self.total_points = 0
+        self.current_level = 1
+        self.current_badge = None
+        self.consecutive_login_days = 0
+        self.last_login_date = None
+        self.matching_status = 'idle'
+        self.match_request_time = None
+    
     def to_dict(self):
         return {
             'id': self.id,
