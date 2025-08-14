@@ -11,13 +11,12 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# 인증 시스템 import (Render 배포 환경 최적화)
+# 인증 시스템 import
 try:
     from auth import init_auth
     AUTH_AVAILABLE = True
-    print("✅ 인증 시스템을 찾았습니다.")
 except ImportError:
-    print("⚠️ 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
+    print("Warning: 인증 시스템을 불러올 수 없습니다. 기본 모드로 실행됩니다.")
     AUTH_AVAILABLE = False
 
 # 인증 시스템의 User 모델과 구분하기 위한 별칭
@@ -34,58 +33,26 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
 
-# 인증 시스템 초기화 (데이터베이스 초기화 이후)
+# 인증 시스템 초기화
 if AUTH_AVAILABLE:
     try:
-        # 데이터베이스는 이미 초기화되었으므로 블루프린트만 등록
-        from auth.routes import auth_bp
-        app.register_blueprint(auth_bp)
-        print("✅ 인증 시스템 블루프린트가 등록되었습니다.")
+        app = init_auth(app)
+        print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
     except Exception as e:
-        print(f"⚠️ 인증 시스템 블루프린트 등록 실패: {e}")
+        print(f"⚠️ 인증 시스템 초기화 실패: {e}")
         AUTH_AVAILABLE = False
 
-# 데이터베이스 초기화 - Render 배포 환경 최적화
-try:
-    # 인증 시스템의 db 객체를 사용
-    from auth import db
+# 데이터베이스 초기화
+if AUTH_AVAILABLE:
+    # 인증 시스템이 있으면 해당 db 객체 사용
+    from auth import db as auth_db
+    db = auth_db
     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
-    
-    # 데이터베이스 초기화 (중복 등록 방지)
-    try:
-        db.init_app(app)
-        print("✅ 데이터베이스 초기화 완료")
-    except RuntimeError as e:
-        if "already been registered" in str(e):
-            print("✅ 데이터베이스가 이미 초기화되었습니다.")
-        else:
-            print(f"⚠️ 데이터베이스 초기화 오류: {e}")
-            raise e
-    
-    # 데이터베이스 테이블 생성
-    with app.app_context():
-        try:
-            db.create_all()
-            print("✅ 데이터베이스 테이블이 생성되었습니다.")
-        except Exception as e:
-            print(f"⚠️ 데이터베이스 테이블 생성 실패: {e}")
-            
-except ImportError as e:
-    print(f"⚠️ 인증 시스템을 불러올 수 없습니다: {e}")
-    print("기본 모드로 실행됩니다.")
-    
+else:
     # 인증 시스템이 없으면 새로 생성
     db = SQLAlchemy(app)
     db.init_app(app)
     print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
-    
-    # 데이터베이스 테이블 생성
-    with app.app_context():
-        try:
-            db.create_all()
-            print("✅ 데이터베이스 테이블이 생성되었습니다.")
-        except Exception as e:
-            print(f"⚠️ 데이터베이스 테이블 생성 실패: {e}")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
