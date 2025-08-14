@@ -4,7 +4,6 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from flask import current_app
-from .models import User, MagicLinkToken, RefreshToken, RevokedToken
 from config.auth_config import AuthConfig
 from . import db  # db 객체 import 추가
 
@@ -42,6 +41,9 @@ class AuthUtils:
     @staticmethod
     def create_magic_link_token(email: str) -> tuple[str, str]:
         """매직링크 토큰 생성"""
+        # 지연 import로 순환 참조 방지
+        from .models import MagicLinkToken
+        
         # 원본 토큰 생성
         original_token = secrets.token_urlsafe(32)
         
@@ -66,6 +68,9 @@ class AuthUtils:
     @staticmethod
     def verify_magic_link_token(token: str) -> Optional[Dict[str, Any]]:
         """매직링크 토큰 검증"""
+        # 지연 import로 순환 참조 방지
+        from .models import MagicLinkToken, User
+        
         # 토큰 해시화
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         
@@ -78,7 +83,7 @@ class AuthUtils:
         if not magic_token:
             return None
         
-                # 만료 여부 확인
+        # 만료 여부 확인
         if magic_token.is_expired():
             # 만료된 토큰 삭제
             db.session.delete(magic_token)
@@ -101,6 +106,9 @@ class AuthUtils:
     @staticmethod
     def create_refresh_token(user_id: int) -> tuple[str, str]:
         """리프레시 토큰 생성"""
+        # 지연 import로 순환 참조 방지
+        from .models import RefreshToken
+        
         # 원본 토큰 생성
         original_token = secrets.token_urlsafe(32)
         
@@ -117,15 +125,17 @@ class AuthUtils:
             expires_at=expires_at
         )
         
-        from . import db
         db.session.add(refresh_token)
         db.session.commit()
         
         return original_token, token_hash
     
     @staticmethod
-    def verify_refresh_token(token: str) -> Optional[User]:
+    def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
         """리프레시 토큰 검증"""
+        # 지연 import로 순환 참조 방지
+        from .models import RefreshToken, User
+        
         # 토큰 해시화
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         
@@ -141,7 +151,6 @@ class AuthUtils:
         # 만료 여부 확인
         if refresh_token.is_expired():
             # 만료된 토큰 삭제
-            from . import db
             db.session.delete(refresh_token)
             db.session.commit()
             return None
@@ -151,6 +160,9 @@ class AuthUtils:
     @staticmethod
     def revoke_refresh_token(token: str) -> bool:
         """리프레시 토큰 무효화"""
+        # 지연 import로 순환 참조 방지
+        from .models import RefreshToken, RevokedToken
+        
         # 토큰 해시화
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         
@@ -172,7 +184,6 @@ class AuthUtils:
             user_id=refresh_token.user_id
         )
         
-        from . import db
         db.session.add(revoked_token)
         db.session.commit()
         
@@ -181,6 +192,8 @@ class AuthUtils:
     @staticmethod
     def generate_employee_id() -> str:
         """고유한 직원 ID 생성"""
+        # 지연 import로 순환 참조 방지
+        from .models import User
         import random
         import string
         
@@ -195,6 +208,8 @@ class AuthUtils:
     @staticmethod
     def is_token_revoked(token_hash: str) -> bool:
         """토큰이 무효화되었는지 확인"""
+        # 지연 import로 순환 참조 방지
+        from .models import RevokedToken
         return RevokedToken.query.filter_by(token_hash=token_hash).first() is not None
 
 def require_auth(f):
@@ -204,6 +219,9 @@ def require_auth(f):
     
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # 지연 import로 순환 참조 방지
+        from .models import User
+        
         auth_header = request.headers.get('Authorization')
         
         if not auth_header:
