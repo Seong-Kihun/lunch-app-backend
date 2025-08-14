@@ -1,7 +1,7 @@
-from auth.models import db, User, MagicLinkToken, RefreshToken, RevokedToken
-from auth.routes import auth_bp
-from auth.utils import AuthUtils
-from auth.email_service import email_service
+from .models import db, User, MagicLinkToken, RefreshToken, RevokedToken
+from .routes import auth_bp
+from .utils import AuthUtils
+from .email_service import email_service
 
 def init_auth(app):
     """인증 시스템 초기화"""
