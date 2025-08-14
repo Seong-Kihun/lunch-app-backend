@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta
 import re
-from auth.models import User, db
-from auth.utils import AuthUtils, require_auth
-from auth.email_service import email_service
+from .models import User, db
+from .utils import AuthUtils, require_auth
+from .email_service import email_service
 from config.auth_config import AuthConfig
 
 # 인증 블루프린트 생성
