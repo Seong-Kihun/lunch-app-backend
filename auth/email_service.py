@@ -183,7 +183,7 @@ class EmailService:
 
 이 메일은 {email}로 발송되었습니다.
 
-© 2024 밥플떼기. All rights reserved.
+© 2025 밥플떼기. All rights reserved.
         """
         
         return text_template.strip()
