@@ -33,23 +33,32 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
 
-# 인증 시스템 초기화
+# 인증 시스템 초기화 (데이터베이스 초기화 이후)
 if AUTH_AVAILABLE:
     try:
-        app = init_auth(app)
-        print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
+        # 데이터베이스는 이미 초기화되었으므로 블루프린트만 등록
+        from auth.routes import auth_bp
+        app.register_blueprint(auth_bp)
+        print("✅ 인증 시스템 블루프린트가 등록되었습니다.")
     except Exception as e:
-        print(f"⚠️ 인증 시스템 초기화 실패: {e}")
+        print(f"⚠️ 인증 시스템 블루프린트 등록 실패: {e}")
         AUTH_AVAILABLE = False
 
-# 데이터베이스 초기화 - 인증 시스템과 통합
+# 데이터베이스 초기화 - Render 배포 환경 최적화
 try:
     # 인증 시스템의 db 객체를 사용
     from auth import db
     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
     
-    # 데이터베이스 초기화
-    db.init_app(app)
+    # 데이터베이스 초기화 (이미 init_app이 호출되었는지 확인)
+    try:
+        db.init_app(app)
+        print("✅ 데이터베이스 초기화 완료")
+    except RuntimeError as e:
+        if "already been registered" in str(e):
+            print("✅ 데이터베이스가 이미 초기화되었습니다.")
+        else:
+            raise e
     
     # 데이터베이스 테이블 생성
     with app.app_context():
@@ -59,7 +68,10 @@ try:
         except Exception as e:
             print(f"⚠️ 데이터베이스 테이블 생성 실패: {e}")
             
-except ImportError:
+except ImportError as e:
+    print(f"⚠️ 인증 시스템을 불러올 수 없습니다: {e}")
+    print("기본 모드로 실행됩니다.")
+    
     # 인증 시스템이 없으면 새로 생성
     db = SQLAlchemy(app)
     db.init_app(app)
