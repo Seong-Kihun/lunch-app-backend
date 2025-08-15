@@ -31,11 +31,18 @@ class AuthUtils:
     def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         """JWT 토큰 검증"""
         try:
+            print(f"DEBUG: Verifying JWT token with secret key: {AuthConfig.JWT_SECRET_KEY[:20]}...")
             payload = jwt.decode(token, AuthConfig.JWT_SECRET_KEY, algorithms=['HS256'])
+            print(f"DEBUG: JWT token verified successfully: {payload}")
             return payload
-        except jwt.ExpiredSignatureError:
+        except jwt.ExpiredSignatureError as e:
+            print(f"DEBUG: JWT token expired: {e}")
             return None
-        except jwt.InvalidTokenError:
+        except jwt.InvalidTokenError as e:
+            print(f"DEBUG: JWT token invalid: {e}")
+            return None
+        except Exception as e:
+            print(f"DEBUG: JWT token verification error: {e}")
             return None
     
     @staticmethod
@@ -232,28 +239,36 @@ def require_auth(f):
         auth_header = request.headers.get('Authorization')
         
         if not auth_header:
+            print(f"DEBUG: Authorization header missing for {request.endpoint}")
             return jsonify({'error': 'Authorization header missing'}), 401
         
         try:
             # Bearer 토큰 추출
             token = auth_header.split(' ')[1]
+            print(f"DEBUG: Token received: {token[:20]}... for {request.endpoint}")
             
             # JWT 토큰 검증
             payload = AuthUtils.verify_jwt_token(token)
             if not payload:
+                print(f"DEBUG: Token verification failed for {request.endpoint}")
                 return jsonify({'error': 'Invalid or expired token'}), 401
+            
+            print(f"DEBUG: Token verified successfully for {request.endpoint}, user_id: {payload.get('user_id')}")
             
             # 토큰 타입 확인
             if payload.get('token_type') != 'access':
+                print(f"DEBUG: Invalid token type: {payload.get('token_type')} for {request.endpoint}")
                 return jsonify({'error': 'Invalid token type'}), 401
             
             # 사용자 조회
             user = User.query.get(payload['user_id'])
             if not user or not user.is_active:
+                print(f"DEBUG: User not found or inactive: {payload['user_id']} for {request.endpoint}")
                 return jsonify({'error': 'User not found or inactive'}), 401
             
             # 토큰 무효화 여부 확인
             if AuthUtils.is_token_revoked(token):
+                print(f"DEBUG: Token revoked for {request.endpoint}")
                 return jsonify({'error': 'Token has been revoked'}), 401
             
             # request 객체에 사용자 정보 추가
@@ -261,9 +276,11 @@ def require_auth(f):
             
             return f(*args, **kwargs)
             
-        except (IndexError, KeyError):
+        except (IndexError, KeyError) as e:
+            print(f"DEBUG: Authorization header format error: {e} for {request.endpoint}")
             return jsonify({'error': 'Invalid authorization header format'}), 401
         except Exception as e:
+            print(f"DEBUG: Authentication error: {e} for {request.endpoint}")
             return jsonify({'error': 'Authentication failed'}), 401
     
     return decorated_function
