@@ -48,7 +48,20 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
 
-# 인증 시스템 초기화
+# 데이터베이스 초기화 (인증 시스템보다 먼저)
+if AUTH_AVAILABLE:
+    # 인증 시스템이 있으면 해당 db 객체 사용
+    from auth import db as auth_db
+    db = auth_db
+    # db 객체를 Flask 앱과 연결
+    db.init_app(app)
+    print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
+else:
+    # 인증 시스템이 없으면 새로 생성
+    db = SQLAlchemy(app)
+    print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
+
+# 인증 시스템 초기화 (데이터베이스 초기화 후)
 if AUTH_AVAILABLE:
     try:
         app = init_auth(app)
@@ -63,19 +76,6 @@ if AUTH_AVAILABLE:
         AUTH_AVAILABLE = False
 else:
     print("ℹ️ 인증 시스템 초기화를 건너뜁니다.")
-
-# 데이터베이스 초기화
-if AUTH_AVAILABLE:
-    # 인증 시스템이 있으면 해당 db 객체 사용
-    from auth import db as auth_db
-    db = auth_db
-    # db 객체를 Flask 앱과 연결
-    db.init_app(app)
-    print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
-else:
-    # 인증 시스템이 없으면 새로 생성
-    db = SQLAlchemy(app)
-    print("✅ 새로운 데이터베이스 객체를 생성했습니다.")
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
