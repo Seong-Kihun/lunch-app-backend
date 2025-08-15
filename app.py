@@ -55,6 +55,8 @@ if AUTH_AVAILABLE:
     # 인증 시스템이 있으면 해당 db 객체 사용
     from auth import db as auth_db
     db = auth_db
+    # db 객체를 Flask 앱과 연결
+    db.init_app(app)
     print("✅ 인증 시스템의 데이터베이스 객체를 사용합니다.")
 else:
     # 인증 시스템이 없으면 새로 생성
