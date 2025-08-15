@@ -13,11 +13,11 @@ class AuthConfig:
     MAGIC_LINK_EXPIRES = timedelta(minutes=10)  # 10분
     
     # 이메일 설정
-    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'mail.koica.go.kr')  # KOICA 이메일 서버
+    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')  # Gmail 서버
     MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
     MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')  # 빈 값으로 설정
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')  # 빈 값으로 설정
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', '')  # 환경 변수에서 가져옴
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')  # 환경 변수에서 가져옴
     
     # 앱 설정
     APP_NAME = '밥플떼기'
