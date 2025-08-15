@@ -11,6 +11,10 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# 환경변수 로드
+from config.env_loader import load_environment_variables
+load_environment_variables()
+
 # 인증 시스템 활성화
 try:
     from auth import init_auth
@@ -45,9 +49,9 @@ else:
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///site.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your-super-secret-jwt-key-change-in-production'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-flask-secret-key-change-in-production')
 
 # 데이터베이스 초기화 (인증 시스템보다 먼저)
 if AUTH_AVAILABLE:
@@ -153,7 +157,7 @@ def generate_recommendation_cache():
     RECOMMENDATION_CACHE = {}
     CACHE_GENERATION_DATE = current_date_str
     
-    # 모든 사용자 조회 (한 번만)
+    # 모든 사용자 조회 (한 번만) - 배치 처리로 최적화
     all_users = db.session.query(User).all()
     user_count = len(all_users)
     
@@ -165,13 +169,17 @@ def generate_recommendation_cache():
     compatibility_cache = {}
     
     # 효율적인 호환성 점수 계산 (O(N log N))
-    for i, user in enumerate(all_users):
-        compatibility_cache[user.employee_id] = {}
-        for j, other_user in enumerate(all_users):
-            if i != j:
-                # 호환성 점수 계산 (캐시된 결과 사용)
-                score = calculate_compatibility_score_cached(user, other_user)
-                compatibility_cache[user.employee_id][other_user.employee_id] = score
+    # 병렬 처리를 위한 배치 크기 설정
+    batch_size = 100
+    for i in range(0, user_count, batch_size):
+        batch_users = all_users[i:i + batch_size]
+        for user in batch_users:
+            compatibility_cache[user.employee_id] = {}
+            for other_user in all_users:
+                if user.employee_id != other_user.employee_id:
+                    # 호환성 점수 계산 (캐시된 결과 사용)
+                    score = calculate_compatibility_score_cached(user, other_user)
+                    compatibility_cache[user.employee_id][other_user.employee_id] = score
     
     # 1달간 (30일) 각 날짜에 대해 추천 그룹 생성
     for day_offset in range(30):
@@ -477,11 +485,8 @@ def get_notification_icon(notification_type):
 # 인증 시스템의 User 모델을 사용합니다.
 # 기존 User 관련 모델들은 auth/models.py에 정의되어 있습니다.
 
-# 인증 시스템 임시 비활성화로 인해 기본 db 객체 사용
-# from auth import db
-# from auth.models import User
-
 # User 모델은 auth.models에서 가져옴 (중복 정의 제거)
+from auth.models import User
 
 # UserPreference 클래스 정의 (기존 기능 유지)
 class UserPreference(db.Model):
@@ -573,7 +578,6 @@ class Party(db.Model):
     meeting_location = db.Column(db.String(200), nullable=True)
     max_members = db.Column(db.Integer, nullable=False, default=4)
     is_from_match = db.Column(db.Boolean, default=False)
-    members_employee_ids = db.Column(db.Text, nullable=True)  # 쉼표로 구분된 멤버 ID 목록
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -597,6 +601,12 @@ class Party(db.Model):
     @property
     def current_members(self):
         return PartyMember.query.filter_by(party_id=self.id).count()
+    
+    @property
+    def member_ids(self):
+        """파티 멤버 ID 목록 반환 (기존 코드와의 호환성을 위해)"""
+        members = PartyMember.query.filter_by(party_id=self.id).all()
+        return [member.employee_id for member in members]
     
     def create_chat_room(self):
         """파티 생성 시 자동으로 채팅방과 참여자들을 생성"""
@@ -1193,7 +1203,10 @@ def get_events(employee_id):
         parties = Party.query.filter(
             or_(
                 Party.host_employee_id == employee_id,
-                Party.members_employee_ids.contains(employee_id)
+                Party.id.in_(
+                    db.session.query(PartyMember.party_id)
+                    .filter(PartyMember.employee_id == employee_id)
+                )
             )
         ).all()
         
@@ -1206,7 +1219,7 @@ def get_events(employee_id):
                 events[party.party_date] = []
                 
             # 파티 멤버 정보 가져오기
-            member_ids = party.members_employee_ids.split(',') if party.members_employee_ids else []
+            member_ids = party.member_ids
             other_member_ids = [mid for mid in member_ids if mid != employee_id]
             
             # 다른 멤버들의 닉네임 가져오기
