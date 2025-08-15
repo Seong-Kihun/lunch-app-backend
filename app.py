@@ -15,6 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 try:
     from auth import init_auth
     from auth.utils import require_auth
+    from auth.models import User  # User 모델 import 추가
     AUTH_AVAILABLE = True
     print("✅ 인증 시스템을 불러왔습니다.")
 except ImportError as e:
@@ -480,25 +481,7 @@ def get_notification_icon(notification_type):
 # from auth import db
 # from auth.models import User
 
-# 임시로 기본 User 모델 정의 (인증 시스템 활성화 시 제거)
-class User(db.Model):
-    __tablename__ = 'users'
-    
-    employee_id = db.Column(db.String(50), primary_key=True)
-    nickname = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(100), nullable=True)
-    gender = db.Column(db.String(10), nullable=True)
-    age_group = db.Column(db.String(20), nullable=True)
-    main_dish_genre = db.Column(db.String(100), nullable=True)
-    lunch_preference = db.Column(db.String(100), nullable=True)
-    total_points = db.Column(db.Integer, default=0)
-    matching_status = db.Column(db.String(20), default='available')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    def __init__(self, employee_id, nickname, email=None):
-        self.employee_id = employee_id
-        self.nickname = nickname
-        self.email = email
+# User 모델은 auth.models에서 가져옴 (중복 정의 제거)
 
 # UserPreference 클래스 정의 (기존 기능 유지)
 class UserPreference(db.Model):
