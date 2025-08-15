@@ -4,6 +4,9 @@ def init_auth(app):
     # 지연 import로 순환 참조 방지
     from .models import db
     
+    # db 객체를 Flask 앱과 연결
+    db.init_app(app)
+    
     # 데이터베이스 테이블 생성
     with app.app_context():
         db.create_all()
