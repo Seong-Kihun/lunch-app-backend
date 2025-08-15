@@ -1,9 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta
 import re
-from .models import User, db
-from .utils import AuthUtils, require_auth
-from .email_service import email_service
 from config.auth_config import AuthConfig
 
 # 인증 블루프린트 생성
@@ -12,6 +9,11 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 @auth_bp.route('/magic-link', methods=['POST'])
 def send_magic_link():
     """매직링크 이메일 발송"""
+    # 지연 import로 순환 참조 방지
+    from .models import User
+    from .utils import AuthUtils
+    from .email_service import email_service
+    
     try:
         data = request.get_json()
         
@@ -48,6 +50,9 @@ def send_magic_link():
 @auth_bp.route('/verify-link', methods=['GET'])
 def verify_magic_link():
     """매직링크 검증 및 사용자 분기 처리"""
+    # 지연 import로 순환 참조 방지
+    from .utils import AuthUtils
+    
     try:
         token = request.args.get('token')
         
@@ -103,6 +108,10 @@ def verify_magic_link():
 @auth_bp.route('/register', methods=['POST'])
 def register_user():
     """신규 사용자 회원가입 완료"""
+    # 지연 import로 순환 참조 방지
+    from .models import User, db
+    from .utils import AuthUtils
+    
     try:
         # 임시 토큰 검증
         auth_header = request.headers.get('Authorization')
@@ -168,6 +177,9 @@ def register_user():
 @auth_bp.route('/refresh', methods=['POST'])
 def refresh_access_token():
     """액세스 토큰 갱신"""
+    # 지연 import로 순환 참조 방지
+    from .utils import AuthUtils
+    
     try:
         data = request.get_json()
         
@@ -197,6 +209,9 @@ def refresh_access_token():
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
     """로그아웃"""
+    # 지연 import로 순환 참조 방지
+    from .utils import AuthUtils
+    
     try:
         data = request.get_json()
         
@@ -216,83 +231,103 @@ def logout():
         return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
 
 @auth_bp.route('/profile', methods=['GET'])
-@require_auth
 def get_profile():
     """사용자 프로필 조회"""
-    try:
-        user = request.current_user
-        return jsonify({
-            'user': user.to_dict(),
-            'message': '프로필 조회 성공'
-        }), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"프로필 조회 실패: {str(e)}")
-        return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+    # 지연 import로 순환 참조 방지
+    from .utils import require_auth
+    
+    @require_auth
+    def protected_profile():
+        try:
+            user = request.current_user
+            return jsonify({
+                'user': user.to_dict(),
+                'message': '프로필 조회 성공'
+            }), 200
+            
+        except Exception as e:
+            current_app.logger.error(f"프로필 조회 실패: {str(e)}")
+            return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+    
+    return protected_profile()
 
 @auth_bp.route('/profile', methods=['PUT'])
-@require_auth
 def update_profile():
     """사용자 프로필 수정"""
-    try:
-        user = request.current_user
-        data = request.get_json()
-        
-        if 'nickname' in data:
-            nickname = data['nickname'].strip()
+    # 지연 import로 순환 참조 방지
+    from .utils import require_auth
+    from .models import User, db
+    
+    @require_auth
+    def protected_update():
+        try:
+            user = request.current_user
+            data = request.get_json()
             
-            # 입력값 검증
-            if len(nickname) < 2 or len(nickname) > 8:
-                return jsonify({'error': '닉네임은 2~8자로 입력해주세요.'}), 400
+            if 'nickname' in data:
+                nickname = data['nickname'].strip()
+                
+                # 입력값 검증
+                if len(nickname) < 2 or len(nickname) > 8:
+                    return jsonify({'error': '닉네임은 2~8자로 입력해주세요.'}), 400
+                
+                if not re.match(r'^[a-zA-Z0-9가-힣]+$', nickname):
+                    return jsonify({'error': '닉네임에는 특수문자를 사용할 수 없습니다.'}), 400
+                
+                # 닉네임 중복 확인 (자신 제외)
+                existing_user = User.query.filter_by(nickname=nickname).first()
+                if existing_user and existing_user.id != user.id:
+                    return jsonify({'error': '이미 사용 중인 닉네임입니다.'}), 400
+                
+                user.nickname = nickname
             
-            if not re.match(r'^[a-zA-Z0-9가-힣]+$', nickname):
-                return jsonify({'error': '닉네임에는 특수문자를 사용할 수 없습니다.'}), 400
+            if 'profile_image' in data:
+                user.profile_image = data['profile_image']
             
-            # 닉네임 중복 확인 (자신 제외)
-            existing_user = User.query.filter_by(nickname=nickname).first()
-            if existing_user and existing_user.id != user.id:
-                return jsonify({'error': '이미 사용 중인 닉네임입니다.'}), 400
+            user.updated_at = datetime.utcnow()
+            db.session.commit()
             
-            user.nickname = nickname
-        
-        if 'profile_image' in data:
-            user.profile_image = data['profile_image']
-        
-        user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'user': user.to_dict(),
-            'message': '프로필이 수정되었습니다.'
-        }), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"프로필 수정 실패: {str(e)}")
-        return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+            return jsonify({
+                'user': user.to_dict(),
+                'message': '프로필이 수정되었습니다.'
+            }), 200
+            
+        except Exception as e:
+            current_app.logger.error(f"프로필 수정 실패: {str(e)}")
+            return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+    
+    return protected_update()
 
 @auth_bp.route('/delete-account', methods=['DELETE'])
-@require_auth
 def delete_account():
     """계정 삭제"""
-    try:
-        user = request.current_user
-        
-        # 사용자 관련 데이터 삭제 (실제로는 비식별화 처리 권장)
-        # 여기서는 간단하게 삭제 처리
-        
-        # 리프레시 토큰들 무효화
-        for refresh_token in user.refresh_tokens:
-            refresh_token.is_revoked = True
-        
-        # 사용자 비활성화
-        user.is_active = False
-        db.session.commit()
-        
-        return jsonify({'message': '계정이 성공적으로 삭제되었습니다.'}), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"계정 삭제 실패: {str(e)}")
-        return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+    # 지연 import로 순환 참조 방지
+    from .utils import require_auth
+    from .models import db
+    
+    @require_auth
+    def protected_delete():
+        try:
+            user = request.current_user
+            
+            # 사용자 관련 데이터 삭제 (실제로는 비식별화 처리 권장)
+            # 여기서는 간단하게 삭제 처리
+            
+            # 리프레시 토큰들 무효화
+            for refresh_token in user.refresh_tokens:
+                refresh_token.is_revoked = True
+            
+            # 사용자 비활성화
+            user.is_active = False
+            db.session.commit()
+            
+            return jsonify({'message': '계정이 성공적으로 삭제되었습니다.'}), 200
+            
+        except Exception as e:
+            current_app.logger.error(f"계정 삭제 실패: {str(e)}")
+            return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+    
+    return protected_delete()
 
 # 에러 핸들러
 @auth_bp.errorhandler(404)
