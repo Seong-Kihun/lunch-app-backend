@@ -48,6 +48,36 @@ class User(db.Model):
     matching_status = db.Column(db.String(20), default='idle')  # 'idle', 'waiting', 'matched'
     match_request_time = db.Column(db.DateTime, nullable=True)
     
+    # 관계 정의 (기존 앱과의 호환성을 위해)
+    @property
+    def preferences(self):
+        """사용자 선호도 정보를 딕셔너리로 반환"""
+        return {
+            'gender': self.gender,
+            'age_group': self.age_group,
+            'main_dish_genre': self.main_dish_genre,
+            'lunch_preference': self.lunch_preference,
+            'allergies': self.allergies,
+            'preferred_time': self.preferred_time,
+            'food_preferences': self.food_preferences,
+            'frequent_areas': self.frequent_areas,
+            'notification_settings': self.notification_settings
+        }
+    
+    @property
+    def activities(self):
+        """사용자 활동 정보를 딕셔너리로 반환"""
+        return {
+            'points': self.points,
+            'total_points': self.total_points,
+            'current_level': self.current_level,
+            'current_badge': self.current_badge,
+            'consecutive_login_days': self.consecutive_login_days,
+            'last_login_date': self.last_login_date,
+            'matching_status': self.matching_status,
+            'match_request_time': self.match_request_time
+        }
+    
     def __repr__(self):
         return f'<User {self.email}>'
     
