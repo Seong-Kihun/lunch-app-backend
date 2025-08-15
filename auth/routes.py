@@ -47,6 +47,35 @@ def send_magic_link():
         current_app.logger.error(f"매직링크 발송 실패: {str(e)}")
         return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
 
+@auth_bp.route('/test-login/<employee_id>', methods=['GET'])
+def test_login(employee_id):
+    """개발/테스트용 임시 로그인 (프로덕션에서는 제거)"""
+    try:
+        from .models import User
+        from .utils import AuthUtils
+        
+        # 테스트용 사용자 조회
+        user = User.query.filter_by(employee_id=employee_id).first()
+        
+        if not user:
+            return jsonify({'error': f'사용자를 찾을 수 없습니다: {employee_id}'}), 404
+        
+        # 액세스 토큰과 리프레시 토큰 발급
+        access_token = AuthUtils.generate_jwt_token(user.id, 'access')
+        refresh_token, _ = AuthUtils.create_refresh_token(user.id)
+        
+        return jsonify({
+            'type': 'test_login',
+            'user': user.to_dict(),
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'message': '테스트 로그인 성공'
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"테스트 로그인 실패: {str(e)}")
+        return jsonify({'error': '서버 오류가 발생했습니다.'}), 500
+
 @auth_bp.route('/verify-link', methods=['GET'])
 def verify_magic_link():
     """매직링크 검증 및 사용자 분기 처리"""
