@@ -398,6 +398,17 @@ def format_korean_time(dt):
     """한국 시간으로 포맷팅하는 함수"""
     if dt:
         korean_time = dt + timedelta(hours=9)
+
+def get_restaurant_recommend_count(restaurant_id):
+    """식당의 오찬 추천 하트 개수를 반환하는 함수"""
+    try:
+        # AsyncStorage에서 추천 데이터를 가져오는 대신
+        # 백엔드에서 추천 데이터를 관리하는 방식으로 변경
+        # 현재는 기본값 0을 반환하고, 추후 추천 시스템과 연동
+        return 0
+    except Exception as e:
+        print(f"Error getting restaurant recommend count: {e}")
+        return 0
         return korean_time.strftime('%Y-%m-%d %H:%M')
     return None
 
@@ -1632,17 +1643,33 @@ def get_restaurants():
         filtered_count = q.count()
         print(f"지역 필터링 후 식당 수: {filtered_count}")
     
-    # 정렬
-    if sort_by == 'rating_desc':
-        q = q.order_by(Restaurant.avg_rating.desc())
-    elif sort_by == 'reviews_desc':
-        q = q.order_by(Restaurant.review_count.desc())
-    else:
-        q = q.order_by(Restaurant.name)
+    # 전체 데이터를 먼저 가져와서 정렬 (전체 데이터 기반 정렬)
+    all_restaurants = q.all()
     
-    # 페이지네이션
-    pagination = q.paginate(page=page, per_page=per_page, error_out=False)
-    restaurants_q = pagination.items
+    # 정렬 로직 개선
+    if sort_by == 'rating_desc':
+        # 평점순 정렬 (내림차순)
+        all_restaurants.sort(key=lambda r: r.avg_rating, reverse=True)
+    elif sort_by == 'reviews_desc':
+        # 리뷰순 정렬 (내림차순)
+        all_restaurants.sort(key=lambda r: r.review_count, reverse=True)
+    elif sort_by == 'recommend_desc':
+        # 오찬 추천순 정렬 (내림차순) - 추천 데이터가 있는 경우
+        all_restaurants.sort(key=lambda r: getattr(r, 'recommend_count', 0), reverse=True)
+    else:
+        # 이름순 정렬 (기본값)
+        all_restaurants.sort(key=lambda r: r.name)
+    
+    # 전체 결과 수
+    total_count = len(all_restaurants)
+    
+    # 수동 페이지네이션 구현
+    start_index = (page - 1) * per_page
+    end_index = start_index + per_page
+    restaurants_q = all_restaurants[start_index:end_index]
+    
+    # 페이지 정보 계산
+    total_pages = (total_count + per_page - 1) // per_page
     
     restaurants_list = [{
         'id': r.id, 
@@ -1652,13 +1679,14 @@ def get_restaurants():
         'latitude': r.latitude, 
         'longitude': r.longitude, 
         'rating': round(r.avg_rating, 1), 
-        'review_count': r.review_count
+        'review_count': r.review_count,
+        'recommend_count': get_restaurant_recommend_count(r.id)  # 오찬 추천 하트 개수 추가
     } for r in restaurants_q]
     
     return jsonify({
         'restaurants': restaurants_list,
-        'total': pagination.total,
-        'pages': pagination.pages,
+        'total': total_count,
+        'pages': total_pages,
         'current_page': page,
         'per_page': per_page
     })
@@ -1795,15 +1823,8 @@ def create_restaurant_request():
     """식당 신청/수정/삭제 요청 생성"""
     data = request.get_json()
     
-    # 일일 신청 제한 확인 (사용자당 5개)
-    today = get_seoul_today()
-    daily_requests = RestaurantRequest.query.filter(
-        RestaurantRequest.requester_id == data['requester_id'],
-        RestaurantRequest.created_at >= today
-    ).count()
-    
-    if daily_requests >= 5:
-        return jsonify({'error': '일일 신청 한도를 초과했습니다. (최대 5개)'}), 400
+    # 일일 신청 제한 제거 - 사용자 편의성 향상
+    # 모든 식당 신청은 관리자 승인 필요
     
     # 중복 신청 확인
     existing_request = RestaurantRequest.query.filter(
@@ -1816,14 +1837,8 @@ def create_restaurant_request():
     if existing_request:
         return jsonify({'error': '이미 동일한 신청이 대기 중입니다.'}), 400
     
-    # 자동 승인 조건 확인
+    # 자동 승인 제거 - 모든 식당은 관리자 승인 필요
     auto_approve = False
-    if data['request_type'] == 'add':
-        # 특정 키워드가 포함된 경우 자동 승인
-        keywords = ['씨유', 'CU', 'GS25', '세븐일레븐', '7-11', '이마트24', '미니스톱']
-        restaurant_name = data.get('restaurant_name', '').lower()
-        if any(keyword.lower() in restaurant_name for keyword in keywords):
-            auto_approve = True
     
     request_obj = RestaurantRequest(
         request_type=data['request_type'],
@@ -1835,39 +1850,24 @@ def create_restaurant_request():
         reason=data.get('reason')
     )
     
-    if auto_approve:
-        request_obj.status = 'approved'
-        request_obj.approved_at = datetime.utcnow()
-        request_obj.approved_by = 'system'
-        
-        # 자동으로 식당 추가
-        if data['request_type'] == 'add':
-            lat, lon = geocode_address(data.get('restaurant_address', ''))
-            restaurant = Restaurant(
-                name=data['restaurant_name'],
-                category='',
-                address=data.get('restaurant_address'),
-                latitude=lat,
-                longitude=lon
-            )
-            db.session.add(restaurant)
+    # 모든 신청은 pending 상태로 시작
+    request_obj.status = 'pending'
     
     db.session.add(request_obj)
     db.session.commit()
     
-    # 알림 생성
-    if not auto_approve:
-        create_notification(
-            user_id='admin',  # 관리자에게 알림
-            type='restaurant_request',
-            title='새로운 식당 신청',
-            message=f"{data['requester_nickname']}님이 식당을 신청했습니다.",
-            related_id=request_obj.id
-        )
+    # 모든 신청에 대해 관리자에게 알림 생성
+    create_notification(
+        user_id='admin',  # 관리자에게 알림
+        type='restaurant_request',
+        title='새로운 식당 신청',
+        message=f"{data['requester_nickname']}님이 식당을 신청했습니다.",
+        related_id=request_obj.id
+    )
     
     return jsonify({
-        'message': '신청이 접수되었습니다.' + (' (자동 승인됨)' if auto_approve else ''),
-        'auto_approved': auto_approve
+        'message': '신청이 접수되었습니다. 관리자 검토 후 승인됩니다.',
+        'auto_approved': False
     }), 201
 
 @app.route('/restaurants/requests/my/<employee_id>', methods=['GET'])
