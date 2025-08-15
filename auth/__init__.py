@@ -21,5 +21,6 @@ def create_tables():
 # 모듈 레벨에서 db 객체를 사용할 수 있도록 설정
 __all__ = [
     'init_auth',
-    'create_tables'
+    'create_tables',
+    'db'
 ]
