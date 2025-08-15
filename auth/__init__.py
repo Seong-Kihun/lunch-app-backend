@@ -11,6 +11,9 @@ def init_auth(app):
     
     return app
 
+# db 객체를 모듈 레벨에서 사용할 수 있도록 설정
+from .models import db
+
 def create_tables():
     """데이터베이스 테이블 생성 (마이그레이션용)"""
     # 지연 import로 순환 참조 방지
