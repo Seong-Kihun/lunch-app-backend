@@ -2,11 +2,7 @@ def init_auth(app):
     """인증 시스템 초기화"""
     
     # 지연 import로 순환 참조 방지
-    from .routes import auth_bp
     from .models import db
-    
-    # 블루프린트 등록
-    app.register_blueprint(auth_bp)
     
     # 데이터베이스 테이블 생성
     with app.app_context():
