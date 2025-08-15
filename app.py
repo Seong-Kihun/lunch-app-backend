@@ -75,6 +75,10 @@ if AUTH_AVAILABLE:
         from auth.routes import auth_bp
         app.register_blueprint(auth_bp)
         
+        # require_auth 데코레이터를 전역에서 사용할 수 있도록 설정
+        from auth.utils import require_auth
+        app.require_auth = require_auth
+        
         print("✅ 인증 시스템이 성공적으로 초기화되었습니다.")
     except Exception as e:
         print(f"⚠️ 인증 시스템 초기화 실패: {e}")
