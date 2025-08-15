@@ -10,7 +10,14 @@ APScheduler>=3.11.0
 PyJWT>=2.8.0
 python-socketio>=5.13.0
 gunicorn>=21.0.0
+python-dotenv>=1.0.0
+
+# 인증 시스템 추가 의존성
+PyJWT>=2.8.0
 cryptography>=41.0.0
 
-# Render 배포 최적화
-psycopg2-binary>=2.9.0
+# 개발 도구 (선택사항)
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
