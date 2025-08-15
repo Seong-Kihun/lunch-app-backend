@@ -1017,9 +1017,12 @@ def initialize_database():
             # 데이터베이스 테이블 생성
             db.create_all()
             
-            # 초기 데이터가 없으면 생성
-            if User.query.count() == 0:
-                create_initial_data()
+            # 초기 데이터가 없으면 생성 (인증 시스템이 활성화된 경우에만)
+            if AUTH_AVAILABLE:
+                if User.query.count() == 0:
+                    create_initial_data()
+            else:
+                print("ℹ️ 인증 시스템이 비활성화되어 초기 데이터 생성을 건너뜁니다.")
             
             # 앱 시작 시 추천 그룹 캐시 생성
             print("DEBUG: Initializing recommendation cache...")
