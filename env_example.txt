@@ -1,0 +1,22 @@
+# 보안 설정
+JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
+SECRET_KEY=your-super-secret-flask-key-change-in-production
+
+# 데이터베이스 설정
+DATABASE_URL=sqlite:///site.db
+
+# Redis 설정
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+
+# 이메일 설정
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=true
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password
+
+# 앱 설정
+APP_DOMAIN=https://api.bal-plateggi.com
+FRONTEND_DOMAIN=https://app.bal-plateggi.com
