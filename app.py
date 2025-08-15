@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 # 인증 시스템 활성화
 try:
     from auth import init_auth
+    from auth.utils import require_auth
     AUTH_AVAILABLE = True
     print("✅ 인증 시스템을 불러왔습니다.")
 except ImportError as e:
@@ -2421,9 +2422,17 @@ def earn_points_api():
         return jsonify({'message': f'포인트 획득 중 오류가 발생했습니다: {str(e)}'}), 500
 
 @app.route('/api/points/history/<user_id>', methods=['GET'])
+@require_auth
 def get_points_history(user_id):
     """포인트 히스토리 조회 API"""
     try:
+        # 인증된 사용자 정보 사용
+        authenticated_user = request.current_user
+        
+        # 다른 사용자의 포인트 히스토리를 조회하는 경우 권한 확인
+        if user_id != authenticated_user.employee_id:
+            return jsonify({'error': '자신의 포인트 히스토리만 조회할 수 있습니다'}), 403
+        
         activities = UserActivity.query.filter_by(user_id=user_id).order_by(desc(UserActivity.created_at)).limit(50).all()
         
         history = []
@@ -2442,9 +2451,17 @@ def get_points_history(user_id):
         return jsonify({'message': f'포인트 히스토리 조회 중 오류가 발생했습니다: {str(e)}'}), 500
 
 @app.route('/api/points/my-ranking/<user_id>', methods=['GET'])
+@require_auth
 def get_my_points_ranking(user_id):
     """내 포인트 순위 조회 API"""
     try:
+        # 인증된 사용자 정보 사용
+        authenticated_user = request.current_user
+        
+        # 다른 사용자의 포인트 순위를 조회하는 경우 권한 확인
+        if user_id != authenticated_user.employee_id:
+            return jsonify({'error': '자신의 포인트 순위만 조회할 수 있습니다'}), 403
+        
         user = User.query.filter_by(employee_id=user_id).first()
         if not user:
             return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
@@ -3282,13 +3299,20 @@ def get_available_dates():
     return jsonify(available_dates)
 
 @app.route('/proposals/date-recommendations', methods=['GET'])
+@require_auth
 def get_date_recommendations():
     """특정 날짜의 추천 그룹을 가져오는 API"""
-    employee_id = request.args.get('employee_id')
+    # 인증된 사용자 정보 사용
+    current_user = request.current_user
+    employee_id = request.args.get('employee_id', current_user.employee_id)
     selected_date = request.args.get('date')
     
-    if not employee_id or not selected_date:
-        return jsonify({'error': 'employee_id and date are required'}), 400
+    # 다른 사용자의 추천을 요청하는 경우 권한 확인
+    if employee_id != current_user.employee_id:
+        return jsonify({'error': '자신의 추천만 조회할 수 있습니다'}), 403
+    
+    if not selected_date:
+        return jsonify({'error': 'date parameter is required'}), 400
 
     try:
         # 해당 날짜의 기존 추천 그룹이 있는지 확인
@@ -3616,7 +3640,15 @@ def cancel_proposal(proposal_id):
     return jsonify({'message': '제안이 취소되었습니다.', 'status': 'cancelled'})
 
 @app.route('/chats/<employee_id>', methods=['GET'])
+@require_auth
 def get_my_chats(employee_id):
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    
+    # 다른 사용자의 채팅 목록을 조회하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 채팅 목록만 조회할 수 있습니다'}), 403
+    
     chat_list = []
     
     print(f"=== DEBUG: 채팅방 목록 조회 시작 (사용자: {employee_id}) ===")
@@ -3827,8 +3859,16 @@ def get_my_chats(employee_id):
     return jsonify(chat_list)
 
 @app.route('/users/<employee_id>', methods=['GET'])
+@require_auth
 def get_user(employee_id):
     try:
+        # 인증된 사용자 정보 사용
+        authenticated_user = request.current_user
+        
+        # 다른 사용자의 프로필을 조회하는 경우 권한 확인
+        if employee_id != authenticated_user.employee_id:
+            return jsonify({'error': '자신의 프로필만 조회할 수 있습니다'}), 403
+        
         print(f"DEBUG: Fetching user profile for employee_id: {employee_id}")
         user = User.query.filter_by(employee_id=employee_id).first()
         if not user: 
@@ -3864,7 +3904,15 @@ def get_users_batch():
     } for user in users])
 
 @app.route('/users/<employee_id>', methods=['PUT'])
+@require_auth
 def update_user(employee_id):
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    
+    # 다른 사용자의 프로필을 수정하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 프로필만 수정할 수 있습니다'}), 403
+    
     user = User.query.filter_by(employee_id=employee_id).first()
     if not user: return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
     
@@ -3879,7 +3927,15 @@ def update_user(employee_id):
     return jsonify({'message': '프로필이 업데이트되었습니다.'})
 
 @app.route('/users/<employee_id>/preferences', methods=['PUT'])
+@require_auth
 def update_user_preferences(employee_id):
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    
+    # 다른 사용자의 선호도를 수정하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 선호도만 수정할 수 있습니다'}), 403
+    
     data = request.get_json()
     user = User.query.filter_by(employee_id=employee_id).first()
     if not user:
@@ -3901,7 +3957,15 @@ def update_user_preferences(employee_id):
     return jsonify({'message': '사용자 선호도가 저장되었습니다.'})
 
 @app.route('/users/<employee_id>/preferences', methods=['GET'])
+@require_auth
 def get_user_preferences(employee_id):
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    
+    # 다른 사용자의 선호도를 조회하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 선호도만 조회할 수 있습니다'}), 403
+    
     user = User.query.filter_by(employee_id=employee_id).first()
     if not user:
         return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
@@ -4453,12 +4517,19 @@ def handle_read_message(data):
 
 # --- 친구 API ---
 @app.route('/users/search', methods=['GET'])
+@require_auth
 def search_users():
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
     nickname = request.args.get('nickname')
-    employee_id = request.args.get('employee_id')  # 검색하는 사용자 ID
+    employee_id = request.args.get('employee_id', authenticated_user.employee_id)  # 검색하는 사용자 ID
     
     if not nickname:
         return jsonify({'message': '닉네임 파라미터가 필요합니다.'}), 400
+    
+    # 다른 사용자를 대신해서 검색하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 검색만 수행할 수 있습니다'}), 403
     
     users = User.query.filter(User.nickname.contains(nickname)).all()  # type: ignore
     
@@ -4466,18 +4537,17 @@ def search_users():
     result = []
     for user in users:
         # 자기 자신은 제외
-        if employee_id and user.employee_id == employee_id:
+        if user.employee_id == employee_id:
             continue
             
         is_friend = False
-        if employee_id:
-            # 일방적 친구 관계 확인
-            friendship = Friendship.query.filter_by(
-                requester_id=employee_id,
-                receiver_id=user.employee_id,
-                status='accepted'
-            ).first()
-            is_friend = friendship is not None
+        # 일방적 친구 관계 확인
+        friendship = Friendship.query.filter_by(
+            requester_id=employee_id,
+            receiver_id=user.employee_id,
+            status='accepted'
+        ).first()
+        is_friend = friendship is not None
         
         result.append({
             'employee_id': user.employee_id,
@@ -4492,13 +4562,20 @@ def search_users():
     return jsonify(result)
 
 @app.route('/friends/add', methods=['POST'])
+@require_auth
 def add_friend():
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
     data = request.get_json()
-    user_id = data.get('user_id')
+    user_id = data.get('user_id', authenticated_user.employee_id)
     friend_id = data.get('friend_id')
     
-    if not user_id or not friend_id:
-        return jsonify({'message': '사용자 ID와 친구 ID가 필요합니다.'}), 400
+    # 다른 사용자를 대신해서 친구를 추가하는 경우 권한 확인
+    if user_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 친구만 추가할 수 있습니다'}), 403
+    
+    if not friend_id:
+        return jsonify({'message': '친구 ID가 필요합니다.'}), 400
     
     if user_id == friend_id:
         return jsonify({'message': '자기 자신을 친구로 추가할 수 없습니다.'}), 400
@@ -4522,13 +4599,20 @@ def add_friend():
     return jsonify({'message': '친구가 추가되었습니다.'}), 201
 
 @app.route('/friends/remove', methods=['POST'])
+@require_auth
 def remove_friend():
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
     data = request.get_json()
-    user_id = data.get('user_id')
+    user_id = data.get('user_id', authenticated_user.employee_id)
     friend_id = data.get('friend_id')
     
-    if not user_id or not friend_id:
-        return jsonify({'message': '사용자 ID와 친구 ID가 필요합니다.'}), 400
+    # 다른 사용자를 대신해서 친구를 제거하는 경우 권한 확인
+    if user_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 친구만 제거할 수 있습니다'}), 403
+    
+    if not friend_id:
+        return jsonify({'message': '친구 ID가 필요합니다.'}), 400
     
     # 친구 관계 찾기 (일방적이므로 user_id가 requester인 경우만)
     friendship = Friendship.query.filter_by(
@@ -4551,11 +4635,16 @@ def remove_friend():
 # @app.route('/friends/requests', methods=['GET'])
 
 @app.route('/friends', methods=['GET'])
+@require_auth
 def get_friends():
     try:
-        employee_id = request.args.get('employee_id')
-        if not employee_id:
-            return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
+        # 인증된 사용자 정보 사용
+        authenticated_user = request.current_user
+        employee_id = request.args.get('employee_id', authenticated_user.employee_id)
+        
+        # 다른 사용자의 친구 목록을 조회하는 경우 권한 확인
+        if employee_id != authenticated_user.employee_id:
+            return jsonify({'error': '자신의 친구 목록만 조회할 수 있습니다'}), 403
         
         print(f"DEBUG: Fetching friends for employee_id: {employee_id}")
         
@@ -4615,11 +4704,16 @@ def get_friends():
         return jsonify({'error': '친구 데이터 조회 중 오류가 발생했습니다.', 'details': str(e)}), 500
 
 @app.route('/friends/recommendations', methods=['GET'])
+@require_auth
 def get_friend_recommendations():
     """친구 추천 API - 랜덤런치 점수, 활동패턴, 상호친구 기반 추천"""
-    employee_id = request.args.get('employee_id')
-    if not employee_id:
-        return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    employee_id = request.args.get('employee_id', authenticated_user.employee_id)
+    
+    # 다른 사용자의 친구 추천을 요청하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 친구 추천만 조회할 수 있습니다'}), 403
     
     # 현재 사용자 정보
     current_user = User.query.filter_by(employee_id=employee_id).first()
@@ -5426,17 +5520,21 @@ def calculate_pattern_score(requester, user):
     return min(score, 1.0)
 
 @app.route('/proposals/smart-recommendations', methods=['GET'])
+@require_auth
 def get_smart_recommendations():
-    employee_id = request.args.get('employee_id')
+    # 인증된 사용자 정보 사용
+    authenticated_user = request.current_user
+    employee_id = request.args.get('employee_id', authenticated_user.employee_id)
     # 여러 파라미터 이름 지원 (프론트엔드 호환성)
     selected_date = request.args.get('selected_date') or request.args.get('date') or request.args.get('target_date')
+    
+    # 다른 사용자의 스마트 추천을 요청하는 경우 권한 확인
+    if employee_id != authenticated_user.employee_id:
+        return jsonify({'error': '자신의 스마트 추천만 조회할 수 있습니다'}), 403
     
     # 디버깅을 위한 로그 추가
     print(f"DEBUG: Received request with employee_id={employee_id}, selected_date={selected_date}")
     print(f"DEBUG: All request args: {dict(request.args)}")
-    
-    if not employee_id:
-        return jsonify({'error': 'employee_id is required'}), 400
 
     try:
         # 캐시가 없으면 먼저 생성
