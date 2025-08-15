@@ -367,11 +367,12 @@ def get_last_dining_together(user1_id, user2_id):
     """두 사용자가 마지막으로 함께 식사한 날짜를 반환"""
     try:
         # 두 사용자가 모두 참여한 파티 중 가장 최근 것을 찾기
-        last_party = Party.query.filter(
+        # PartyMember 테이블을 사용하여 정규화된 방식으로 조회
+        last_party = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
             and_(
                 or_(
-                    and_(Party.host_employee_id == user1_id, Party.members_employee_ids.contains(user2_id)),
-                    and_(Party.host_employee_id == user2_id, Party.members_employee_ids.contains(user1_id))
+                    and_(Party.host_employee_id == user1_id, PartyMember.employee_id == user2_id),
+                    and_(Party.host_employee_id == user2_id, PartyMember.employee_id == user1_id)
                 ),
                 Party.party_date < get_seoul_today().strftime('%Y-%m-%d')
             )
@@ -586,7 +587,7 @@ class Party(db.Model):
         db.Index('idx_party_restaurant', 'restaurant_name'),
     )
     
-    def __init__(self, host_employee_id, title, restaurant_name, restaurant_address, party_date, party_time, meeting_location, max_members, is_from_match=False, members_employee_ids=None):
+    def __init__(self, host_employee_id, title, restaurant_name, restaurant_address, party_date, party_time, meeting_location, max_members, is_from_match=False):
         self.host_employee_id = host_employee_id
         self.title = title
         self.restaurant_name = restaurant_name
@@ -596,7 +597,6 @@ class Party(db.Model):
         self.meeting_location = meeting_location
         self.max_members = max_members
         self.is_from_match = is_from_match
-        self.members_employee_ids = members_employee_ids or host_employee_id  # 기본값으로 호스트 ID 설정
 
     @property
     def current_members(self):
@@ -607,6 +607,11 @@ class Party(db.Model):
         """파티 멤버 ID 목록 반환 (기존 코드와의 호환성을 위해)"""
         members = PartyMember.query.filter_by(party_id=self.id).all()
         return [member.employee_id for member in members]
+    
+    @property
+    def member_ids_string(self):
+        """파티 멤버 ID를 쉼표로 구분된 문자열로 반환 (기존 코드와의 호환성을 위해)"""
+        return ','.join(self.member_ids)
     
     def create_chat_room(self):
         """파티 생성 시 자동으로 채팅방과 참여자들을 생성"""
@@ -2030,8 +2035,8 @@ def get_user_analytics(employee_id):
         ).all()
         
         # 파티 참여 통계
-        parties_joined = Party.query.filter(
-            Party.members_employee_ids.contains(employee_id)  # type: ignore
+        parties_joined = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
+            PartyMember.employee_id == employee_id
         ).count()
         
         # 리뷰 작성 통계
@@ -2977,49 +2982,60 @@ def join_party(party_id):
     data = request.get_json() or {}
     employee_id = data.get('employee_id')
     if party and party.current_members >= party.max_members: return jsonify({'message': '파티 인원이 가득 찼습니다.'}), 400
-    if party and employee_id and employee_id not in party.members_employee_ids.split(','):
-        party.members_employee_ids += f',{employee_id}'
-        db.session.commit()
-        
-        # 파티 참여 포인트
-        earn_points(employee_id, 'party_joined', 30, '파티 참여')
-        
-        # 랜덤런치 파티인 경우 추가 포인트
-        if party.is_from_match:
-            earn_points(employee_id, 'random_lunch_joined', 20, '랜덤런치 참여')
-            earn_category_points(employee_id, 'random_lunch_king', 'join', 20)
-        
-        # 파티의 식당 카테고리에 따른 포인트 획득
-        if party.restaurant_name:
-            # 식당 정보에서 카테고리 확인
-            restaurant = Restaurant.query.filter_by(name=party.restaurant_name).first()
-            if restaurant:
-                category = restaurant.category.lower()
-                if '양식' in category or 'western' in category:
-                    earn_category_points(employee_id, 'western', 'party_join', 15)
-                elif '카페' in category or 'cafe' in category:
-                    earn_category_points(employee_id, 'cafe', 'party_join', 15)
-                elif '한식' in category or 'korean' in category:
-                    earn_category_points(employee_id, 'korean', 'party_join', 15)
-                elif '중식' in category or 'chinese' in category:
-                    earn_category_points(employee_id, 'chinese', 'party_join', 15)
-                elif '일식' in category or 'japanese' in category:
-                    earn_category_points(employee_id, 'japanese', 'party_join', 15)
-                elif '카페' in category or 'cafe' in category:
-                    earn_category_points(employee_id, 'cafe', 'party_join', 15)
-        
-        # 파티 호스트에게 참가 알림 생성
-        join_user = User.query.filter_by(employee_id=employee_id).first()
-        join_nickname = join_user.nickname if join_user else employee_id
-        
-        create_notification(
-            user_id=party.host_employee_id,
-            notification_type='party_join',
-            title='👥 파티 참가',
-            message=f'{join_nickname}님이 "{party.title}" 파티에 참가했습니다.',
-            related_id=party.id,
-            related_type='party'
-        )
+    
+    # 이미 참여 중인지 확인
+    existing_member = PartyMember.query.filter_by(party_id=party_id, employee_id=employee_id).first()
+    if existing_member:
+        return jsonify({'message': '이미 파티에 참여 중입니다.'}), 400
+    
+    # PartyMember 테이블에 추가
+    new_member = PartyMember(
+        party_id=party_id,
+        employee_id=employee_id,
+        is_host=False
+    )
+    db.session.add(new_member)
+    db.session.commit()
+    
+    # 파티 참여 포인트
+    earn_points(employee_id, 'party_joined', 30, '파티 참여')
+    
+    # 랜덤런치 파티인 경우 추가 포인트
+    if party.is_from_match:
+        earn_points(employee_id, 'random_lunch_joined', 20, '랜덤런치 참여')
+        earn_category_points(employee_id, 'random_lunch_king', 'join', 20)
+    
+    # 파티의 식당 카테고리에 따른 포인트 획득
+    if party.restaurant_name:
+        # 식당 정보에서 카테고리 확인
+        restaurant = Restaurant.query.filter_by(name=party.restaurant_name).first()
+        if restaurant:
+            category = restaurant.category.lower()
+            if '양식' in category or 'western' in category:
+                earn_category_points(employee_id, 'western', 'party_join', 15)
+            elif '카페' in category or 'cafe' in category:
+                earn_category_points(employee_id, 'cafe', 'party_join', 15)
+            elif '한식' in category or 'korean' in category:
+                earn_category_points(employee_id, 'korean', 'party_join', 15)
+            elif '중식' in category or 'chinese' in category:
+                earn_category_points(employee_id, 'chinese', 'party_join', 15)
+            elif '일식' in category or 'japanese' in category:
+                earn_category_points(employee_id, 'japanese', 'party_join', 15)
+            elif '카페' in category or 'cafe' in category:
+                earn_category_points(employee_id, 'cafe', 'party_join', 15)
+    
+    # 파티 호스트에게 참가 알림 생성
+    join_user = User.query.filter_by(employee_id=employee_id).first()
+    join_nickname = join_user.nickname if join_user else employee_id
+    
+    create_notification(
+        user_id=party.host_employee_id,
+        notification_type='party_join',
+        title='👥 파티 참가',
+        message=f'{join_nickname}님이 "{party.title}" 파티에 참가했습니다.',
+        related_id=party.id,
+        related_type='party'
+    )
     
     return jsonify({'message': '파티에 참여했습니다.'})
 
@@ -3038,16 +3054,12 @@ def leave_party(party_id):
     if party.host_employee_id == employee_id:
         return jsonify({'message': '파티장은 파티를 나갈 수 없습니다. 파티 삭제를 사용해주세요.'}), 400
     
-    # 멤버 목록에서 제거
-    if party.members_employee_ids:
-        member_ids = party.members_employee_ids.split(',')
-        if employee_id in member_ids:
-            member_ids.remove(employee_id)
-            party.members_employee_ids = ','.join(member_ids)
-            db.session.commit()
-            return jsonify({'message': '파티에서 나갔습니다.'})
-        else:
-            return jsonify({'message': '이미 파티에 참여하지 않습니다.'}), 400
+    # PartyMember 테이블에서 제거
+    member = PartyMember.query.filter_by(party_id=party_id, employee_id=employee_id).first()
+    if member:
+        db.session.delete(member)
+        db.session.commit()
+        return jsonify({'message': '파티에서 나갔습니다.'})
     else:
         return jsonify({'message': '이미 파티에 참여하지 않습니다.'}), 400
 
@@ -3057,7 +3069,7 @@ def get_my_parties(employee_id):
     my_parties = Party.query.filter(
         or_(
             Party.host_employee_id == employee_id,  # type: ignore
-            Party.members_employee_ids.contains(employee_id)  # type: ignore
+            Party.id.in_(db.session.query(PartyMember.party_id).filter(PartyMember.employee_id == employee_id))
         )
     ).all()
     
@@ -3363,8 +3375,10 @@ def suggest_groups():
     # 파티에 참여하는 유저들
     parties = Party.query.filter(Party.party_date == date).all()  # type: ignore
     for party in parties:
-        if party.members_employee_ids:
-            busy_users.update(party.members_employee_ids.split(','))
+        # PartyMember 테이블에서 멤버 ID 가져오기
+        party_members = PartyMember.query.filter_by(party_id=party.id).all()
+        member_ids = [member.employee_id for member in party_members]
+        busy_users.update(member_ids)
     
     # 개인 일정이 있는 유저들
     schedules = PersonalSchedule.query.filter_by(schedule_date=date).all()
@@ -3558,8 +3572,8 @@ def accept_proposal(proposal_id):
     proposed_date = proposal.proposed_date
     
     # 파티 확인
-    has_party = Party.query.filter(
-        Party.members_employee_ids.contains(user_id),  # type: ignore
+    has_party = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
+        PartyMember.employee_id == user_id,
         Party.party_date == proposed_date  # type: ignore
     ).first() is not None
     
@@ -3603,10 +3617,20 @@ def accept_proposal(proposal_id):
             party_time='12:00',
             meeting_location='KOICA 본사',
             max_members=len(all_members),
-            members_employee_ids=','.join(all_members),
             is_from_match=True
         )
         db.session.add(new_party)
+        db.session.flush()  # ID를 얻기 위해 flush
+        
+        # 모든 멤버를 PartyMember 테이블에 추가
+        for member_id in all_members:
+            is_host = (member_id == proposal.proposer_id)
+            party_member = PartyMember(
+                party_id=new_party.id,
+                employee_id=member_id,
+                is_host=is_host
+            )
+            db.session.add(party_member)
         
         # 같은 날짜의 다른 pending 제안들을 cancelled로 변경
         other_pending_proposals = LunchProposal.query.filter(
@@ -3667,7 +3691,9 @@ def get_my_chats(employee_id):
     
     # 파티 채팅방들 (랜덤 런치 제외)
     party_chat_list = []
-    joined_parties = Party.query.filter(Party.members_employee_ids.contains(employee_id)).order_by(desc(Party.id)).all()  # type: ignore
+    joined_parties = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
+        PartyMember.employee_id == employee_id
+    ).order_by(desc(Party.id)).all()
     
     # 중복 제거를 위한 set
     seen_party_ids = set()
@@ -4014,8 +4040,10 @@ def get_chat_messages(chat_type, chat_id):
     # 채팅방 참여자 목록 구하기
     if chat_type == 'party':
         party = Party.query.get(chat_id)
-        if party and party.members_employee_ids:
-            member_ids = [mid.strip() for mid in party.members_employee_ids.split(',') if mid.strip()]
+        if party:
+            # PartyMember 테이블에서 멤버 ID 가져오기
+            party_members = PartyMember.query.filter_by(party_id=chat_id).all()
+            member_ids = [member.employee_id for member in party_members]
         else:
             member_ids = []
     elif chat_type == 'dangolpot':
@@ -4250,18 +4278,17 @@ def get_chat_room_members(chat_type, chat_id):
             }]
             
             # 멤버 정보 (호스트 제외)
-            if party.members_employee_ids:
-                member_ids = [mid.strip() for mid in party.members_employee_ids.split(',') if mid.strip()]
-                for member_id in member_ids:
-                    # 호스트는 이미 위에서 추가했으므로 중복 제외
-                    if member_id != party.host_employee_id:
-                        user = User.query.filter_by(employee_id=member_id).first()
-                        if user:
-                            members.append({
-                                'employee_id': member_id,
-                                'nickname': user.nickname,
-                                'is_host': False
-                            })
+            party_members = PartyMember.query.filter_by(party_id=chat_id).all()
+            for member in party_members:
+                # 호스트는 이미 위에서 추가했으므로 중복 제외
+                if member.employee_id != party.host_employee_id:
+                    user = User.query.filter_by(employee_id=member.employee_id).first()
+                    if user:
+                        members.append({
+                            'employee_id': member.employee_id,
+                            'nickname': user.nickname,
+                            'is_host': False
+                        })
             
         elif chat_type == 'dangolpot':
             pot = DangolPot.query.get(chat_id)
@@ -4334,16 +4361,12 @@ def leave_chat_room():
             if party.host_employee_id == employee_id:
                 return jsonify({'error': '파티 호스트는 파티를 나갈 수 없습니다. 파티를 삭제해주세요.'}), 403
             
-            # 멤버 목록에서 해당 사용자 제거
-            if party.members_employee_ids:
-                member_ids = [mid.strip() for mid in party.members_employee_ids.split(',') if mid.strip()]
-                if employee_id in member_ids:
-                    member_ids.remove(employee_id)
-                    party.members_employee_ids = ','.join(member_ids)
-                    db.session.commit()
-                    return jsonify({'message': '파티에서 나갔습니다.'}), 200
-                else:
-                    return jsonify({'error': '해당 파티의 멤버가 아닙니다.'}), 404
+            # PartyMember 테이블에서 해당 사용자 제거
+            member = PartyMember.query.filter_by(party_id=chat_id, employee_id=employee_id).first()
+            if member:
+                db.session.delete(member)
+                db.session.commit()
+                return jsonify({'message': '파티에서 나갔습니다.'}), 200
             else:
                 return jsonify({'error': '해당 파티의 멤버가 아닙니다.'}), 404
                 
@@ -4496,7 +4519,12 @@ def handle_read_message(data):
         # 채팅방 참여자 목록 구하기
         if chat_type == 'party':
             party = Party.query.get(chat_id)
-            member_ids = [mid.strip() for mid in party.members_employee_ids.split(',') if mid.strip()] if party and party.members_employee_ids else []
+            if party:
+                # PartyMember 테이블에서 멤버 ID 가져오기
+                party_members = PartyMember.query.filter_by(party_id=chat_id).all()
+                member_ids = [member.employee_id for member in party_members]
+            else:
+                member_ids = []
         elif chat_type == 'dangolpot':
             pot = DangolPot.query.get(chat_id)
             member_ids = [mid.strip() for mid in pot.members.split(',') if mid.strip()] if pot and pot.members else []
@@ -4674,11 +4702,11 @@ def get_friends():
             
             if friend:
                 # 마지막으로 함께 점심 먹은 날 계산 (dining_history 로직 참조)
-                last_party = Party.query.filter(
+                last_party = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
                     and_(
                         or_(
-                            and_(Party.host_employee_id == employee_id, Party.members_employee_ids.contains(friend.employee_id)),
-                            and_(Party.host_employee_id == friend.employee_id, Party.members_employee_ids.contains(employee_id))
+                            and_(Party.host_employee_id == employee_id, PartyMember.employee_id == friend.employee_id),
+                            and_(Party.host_employee_id == friend.employee_id, PartyMember.employee_id == employee_id)
                         ),
                         Party.party_date < today.strftime('%Y-%m-%d')
                     )
@@ -4757,7 +4785,7 @@ def get_friend_recommendations():
         user_parties = Party.query.filter(
             or_(
                 Party.host_employee_id == user.employee_id,
-                Party.members_employee_ids.contains(user.employee_id)
+                Party.id.in_(db.session.query(PartyMember.party_id).filter(PartyMember.employee_id == user.employee_id))
             )
         ).count()
         
@@ -4775,12 +4803,15 @@ def get_friend_recommendations():
         # 해당 사용자와 함께 파티에 참여했던 사람들
         user_party_members = set()
         user_hosted_parties = Party.query.filter_by(host_employee_id=user.employee_id).all()
-        user_joined_parties = Party.query.filter(Party.members_employee_ids.contains(user.employee_id)).all()
+        user_joined_parties = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
+            PartyMember.employee_id == user.employee_id
+        ).all()
         
         for party in user_hosted_parties + user_joined_parties:
-            if party.members_employee_ids:
-                members = party.members_employee_ids.split(',')
-                user_party_members.update([m.strip() for m in members if m.strip() != user.employee_id])
+            # PartyMember 테이블에서 멤버 ID 가져오기
+            party_members = PartyMember.query.filter_by(party_id=party.id).all()
+            member_ids = [member.employee_id for member in party_members if member.employee_id != user.employee_id]
+            user_party_members.update(member_ids)
         
         # 공통 연결점 계산
         mutual_connections = len(current_user_friends.intersection(user_party_members))
@@ -4792,7 +4823,7 @@ def get_friend_recommendations():
             and_(
                 or_(
                     Party.host_employee_id == user.employee_id,
-                    Party.members_employee_ids.contains(user.employee_id)
+                    Party.id.in_(db.session.query(PartyMember.party_id).filter(PartyMember.employee_id == user.employee_id))
                 ),
                 Party.party_date >= (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
             )
@@ -4979,8 +5010,8 @@ def find_available_dates_for_participants(participant_ids, max_days=30):
         
         for participant_id in participant_ids:
             # 파티 약속 확인
-            has_party = Party.query.filter(
-                Party.members_employee_ids.contains(participant_id),  # type: ignore
+            has_party = Party.query.join(PartyMember, Party.id == PartyMember.party_id).filter(
+                PartyMember.employee_id == participant_id,
                 Party.party_date == date_str  # type: ignore
             ).first() is not None
             
@@ -5475,19 +5506,19 @@ def get_last_dining_together(user1_id, user2_id):
     """두 사용자가 마지막으로 함께 점심을 먹은 시간을 계산하는 함수"""
     try:
         # 두 사용자가 함께 참여한 파티 중 가장 최근 것을 찾기
-        latest_party = db.session.query(Party).filter(
+        latest_party = db.session.query(Party).join(PartyMember, Party.id == PartyMember.party_id).filter(
             and_(
                 or_(
                     and_(
-                        getattr(Party, 'host_employee_id') == user1_id,
-                        getattr(Party, 'members_employee_ids').contains(user2_id)
+                        Party.host_employee_id == user1_id,
+                        PartyMember.employee_id == user2_id
                     ),
                     and_(
-                        getattr(Party, 'host_employee_id') == user2_id,
-                        getattr(Party, 'members_employee_ids').contains(user1_id)
+                        Party.host_employee_id == user2_id,
+                        PartyMember.employee_id == user1_id
                     )
                 ),
-                getattr(Party, 'party_date') < get_seoul_today().strftime('%Y-%m-%d')
+                Party.party_date < get_seoul_today().strftime('%Y-%m-%d')
             )
         ).order_by(desc(Party.party_date)).first()
         
@@ -6389,12 +6420,22 @@ def auto_create_party_from_voting(session):
             party_time=session.meeting_time or '12:00',
             meeting_location=session.meeting_location or '미정',
             max_members=len(json.loads(session.participants)),
-            members_employee_ids=','.join(json.loads(session.participants)),
             is_from_match=False
         )
         
         db.session.add(new_party)
         db.session.flush()
+        
+        # 모든 참가자를 PartyMember 테이블에 추가
+        participants = json.loads(session.participants)
+        for participant_id in participants:
+            is_host = (participant_id == session.created_by)
+            party_member = PartyMember(
+                party_id=new_party.id,
+                employee_id=participant_id,
+                is_host=is_host
+            )
+            db.session.add(party_member)
         
         # 채팅방 생성
         new_party.create_chat_room()
