@@ -21,6 +21,19 @@ except ImportError as e:
     print(f"⚠️ 인증 시스템을 불러올 수 없습니다: {e}")
     AUTH_AVAILABLE = False
 
+# 인증 시스템이 없을 때 사용할 fallback 데코레이터
+if not AUTH_AVAILABLE:
+    def require_auth(f):
+        """인증 시스템이 없을 때 사용하는 fallback 데코레이터"""
+        from functools import wraps
+        from flask import request, jsonify
+        
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            return jsonify({'error': 'Authentication system not available'}), 503
+        
+        return decorated_function
+
 AUTH_USER_AVAILABLE = AUTH_AVAILABLE
 
 if AUTH_AVAILABLE:
