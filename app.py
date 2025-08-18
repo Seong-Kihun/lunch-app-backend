@@ -6985,6 +6985,16 @@ def generate_daily_recommendations():
         print(f"Error generating daily recommendations: {e}")
         db.session.rollback()
 
+# 새로운 포인트 시스템 API 등록
+from utils.points_system import PointsSystem
+from utils.challenge_system import ChallengeSystem
+from utils.badge_system import BadgeSystem
+from utils.friend_invite_system import FriendInviteSystem
+
+# 포인트 시스템 API 블루프린트 등록
+from api.points_api import points_api
+app.register_blueprint(points_api, url_prefix='/api')
+
 # 스케줄러 초기화
 scheduler = BackgroundScheduler()
 scheduler.add_job(
