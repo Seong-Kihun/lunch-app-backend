@@ -271,3 +271,63 @@ def get_invite_stats(user_id):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@points_api.route('/review/like', methods=['POST'])
+def like_review():
+    """리뷰 좋아요 API - 좋아요를 누른 사용자와 리뷰 작성자 모두에게 포인트 지급"""
+    try:
+        data = request.get_json()
+        liker_id = data.get('liker_id')  # 좋아요를 누른 사용자
+        review_id = data.get('review_id')  # 리뷰 ID
+        review_author_id = data.get('review_author_id')  # 리뷰 작성자 ID
+        
+        if not liker_id or not review_id or not review_author_id:
+            return jsonify({'error': '필수 정보가 누락되었습니다.'}), 400
+        
+        # 같은 사용자가 자신의 리뷰에 좋아요를 누르는 것을 방지
+        if liker_id == review_author_id:
+            return jsonify({'error': '자신의 리뷰에는 좋아요를 누를 수 없습니다.'}), 400
+        
+        # 좋아요를 누른 사용자에게 포인트 지급 (좋아요 활동)
+        liker_success = PointsSystem.earn_points(
+            user_id=liker_id,
+            activity_type="review_like_given",
+            points=5,
+            description=f"리뷰 좋아요 활동"
+        )
+        
+        # 리뷰 작성자에게 포인트 지급 (좋아요 받음)
+        author_success = PointsSystem.earn_points(
+            user_id=review_author_id,
+            activity_type="review_like_received",
+            points=10,
+            description=f"리뷰가 도움이 되었다고 평가받음"
+        )
+        
+        if liker_success and author_success:
+            return jsonify({
+                'success': True,
+                'message': '리뷰 좋아요가 처리되었습니다!',
+                'liker_points_earned': 5,
+                'author_points_earned': 10
+            })
+        else:
+            return jsonify({'error': '포인트 지급에 실패했습니다.'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@points_api.route('/review/likes/<review_id>', methods=['GET'])
+def get_review_likes(review_id):
+    """리뷰 좋아요 수 조회 API"""
+    try:
+        # 실제 구현에서는 데이터베이스에서 좋아요 수를 조회
+        # 현재는 임시로 0 반환
+        return jsonify({
+            'review_id': review_id,
+            'likes_count': 0,
+            'message': '좋아요 수 조회 성공'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
