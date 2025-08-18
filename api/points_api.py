@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
-from ..utils.points_system import PointsSystem
-from ..utils.challenge_system import ChallengeSystem
-from ..utils.badge_system import BadgeSystem
-from ..utils.friend_invite_system import FriendInviteSystem
+from utils.points_system import PointsSystem
+from utils.challenge_system import ChallengeSystem
+from utils.badge_system import BadgeSystem
+from utils.friend_invite_system import FriendInviteSystem
 
 # 블루프린트 생성
 points_api = Blueprint('points_api', __name__)
@@ -53,7 +53,7 @@ def earn_points():
 def get_points_status(user_id):
     """사용자 포인트 상태 조회 API"""
     try:
-        from ..app import User
+        from app import User
         
         user = User.query.filter_by(employee_id=user_id).first()
         if not user:
