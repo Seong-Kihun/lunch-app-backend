@@ -18,129 +18,252 @@ class ChallengeStatus(Enum):
 class Challenge:
     """챌린지 정보 클래스"""
     
-    def __init__(self, challenge_id: str, name: str, description: str, 
-                 challenge_type: ChallengeType, points: int, requirements: Dict,
-                 start_date: datetime, end_date: datetime):
-        self.challenge_id = challenge_id
+    def __init__(self, id: str, name: str, description: str, points: int, 
+                 type: ChallengeType, requirements: Dict, category: str):
+        self.id = id
         self.name = name
         self.description = description
-        self.challenge_type = challenge_type
         self.points = points
+        self.type = type
         self.requirements = requirements
-        self.start_date = start_date
-        self.end_date = end_date
-        self.status = ChallengeStatus.IN_PROGRESS
+        self.category = category
+        self.created_at = datetime.now()
+        
+        # 타입에 따른 만료 시간 설정
+        if type == ChallengeType.DAILY:
+            self.expires_at = self.created_at.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif type == ChallengeType.WEEKLY:
+            # 이번 주 일요일 자정
+            days_until_sunday = (6 - self.created_at.weekday()) % 7
+            self.expires_at = (self.created_at + timedelta(days=days_until_sunday)).replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif type == ChallengeType.MONTHLY:
+            # 이번 달 마지막 날
+            if self.created_at.month == 12:
+                next_month = self.created_at.replace(year=self.created_at.year + 1, month=1, day=1)
+            else:
+                next_month = self.created_at.replace(month=self.created_at.month + 1, day=1)
+            self.expires_at = (next_month - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:  # SPECIAL
+            self.expires_at = self.created_at + timedelta(days=30)  # 기본 30일
 
 class ChallengeSystem:
     """챌린지 시스템 관리 클래스"""
     
     @staticmethod
     def get_daily_challenges() -> List[Challenge]:
-        """일일 미션 목록 반환"""
-        today = datetime.now()
-        tomorrow = today + timedelta(days=1)
-        tomorrow = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        challenges = [
+        """일일 챌린지 목록 반환"""
+        return [
             Challenge(
-                "daily_review", "오늘의 기록", "오늘 먹은 음식 리뷰 작성하기",
-                ChallengeType.DAILY, 25, {"review_count": 1}, today, tomorrow
+                id="daily_1",
+                name="오늘의 기록",
+                description="오늘 점심 메뉴를 기록하기",
+                points=20,
+                type=ChallengeType.DAILY,
+                requirements={"action": "record_lunch", "count": 1},
+                category="기록"
             ),
             Challenge(
-                "daily_photo", "사진 작가", "리뷰에 사진 첨부하기",
-                ChallengeType.DAILY, 30, {"photo_review_count": 1}, today, tomorrow
+                id="daily_2",
+                name="사진 작가",
+                description="점심 사진을 찍어서 공유하기",
+                points=30,
+                type=ChallengeType.DAILY,
+                requirements={"action": "share_photo", "count": 1},
+                category="공유"
             ),
             Challenge(
-                "daily_social", "소통하기", "파티나 랜덤런치 참여하기",
-                ChallengeType.DAILY, 40, {"social_activity_count": 1}, today, tomorrow
+                id="daily_3",
+                name="소통하기",
+                description="파티나 랜덤런치에 참여하기",
+                points=40,
+                type=ChallengeType.DAILY,
+                requirements={"action": "join_party", "count": 1},
+                category="소통"
             ),
             Challenge(
-                "daily_friend", "친구와 함께", "친구와 함께 식사하기",
-                ChallengeType.DAILY, 35, {"friend_meal_count": 1}, today, tomorrow
+                id="daily_4",
+                name="맛집 탐험",
+                description="새로운 식당에 방문하기",
+                points=50,
+                type=ChallengeType.DAILY,
+                requirements={"action": "visit_new_restaurant", "count": 1},
+                category="탐험"
             ),
             Challenge(
-                "daily_discovery", "오늘의 발견", "새로운 음식 종류 리뷰하기",
-                ChallengeType.DAILY, 20, {"new_food_review_count": 1}, today, tomorrow
+                id="daily_5",
+                name="리뷰 작성",
+                description="방문한 식당에 리뷰 작성하기",
+                points=25,
+                type=ChallengeType.DAILY,
+                requirements={"action": "write_review", "count": 1},
+                category="리뷰"
             ),
             Challenge(
-                "daily_time", "기분 전환", "다른 시간대에 식사하기",
-                ChallengeType.DAILY, 15, {"different_time_meal": 1}, today, tomorrow
+                id="daily_6",
+                name="친구와 식사",
+                description="친구와 함께 점심 먹기",
+                points=35,
+                type=ChallengeType.DAILY,
+                requirements={"action": "dine_with_friend", "count": 1},
+                category="소통"
             ),
             Challenge(
-                "daily_restaurant", "오늘의 맛", "평소와 다른 음식점 방문하기",
-                ChallengeType.DAILY, 30, {"different_restaurant": 1}, today, tomorrow
+                id="daily_7",
+                name="건강한 선택",
+                description="건강한 메뉴 선택하기",
+                points=20,
+                type=ChallengeType.DAILY,
+                requirements={"action": "healthy_choice", "count": 1},
+                category="건강"
+            ),
+            Challenge(
+                id="daily_8",
+                name="시간 지키기",
+                description="점심 시간을 정확히 지키기",
+                points=15,
+                type=ChallengeType.DAILY,
+                requirements={"action": "on_time_lunch", "count": 1},
+                category="습관"
             )
         ]
-        
-        return challenges
     
     @staticmethod
     def get_weekly_challenges() -> List[Challenge]:
-        """주간 미션 목록 반환"""
-        today = datetime.now()
-        week_start = today - timedelta(days=today.weekday())
-        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_end = week_start + timedelta(days=7)
-        
-        challenges = [
+        """주간 챌린지 목록 반환"""
+        return [
             Challenge(
-                "weekly_explorer", "탐험가", "이번 주 3개 파티 참여하기",
-                ChallengeType.WEEKLY, 200, {"party_participate_count": 3}, week_start, week_end
+                id="weekly_1",
+                name="맛집 탐험가",
+                description="일주일 동안 5개의 다른 식당 방문하기",
+                points=150,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "visit_restaurants", "count": 5},
+                category="탐험"
             ),
             Challenge(
-                "weekly_reviewer", "리뷰어", "이번 주 5개 리뷰 작성하기",
-                ChallengeType.WEEKLY, 150, {"review_write_count": 5}, week_start, week_end
+                id="weekly_2",
+                name="소셜 플레이어",
+                description="일주일 동안 3번의 파티나 랜덤런치 참여하기",
+                points=200,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "join_activities", "count": 3},
+                category="소통"
             ),
             Challenge(
-                "weekly_social", "소셜 플레이어", "이번 주 2번 랜덤런치 참여하기",
-                ChallengeType.WEEKLY, 120, {"random_lunch_count": 2}, week_start, week_end
+                id="weekly_3",
+                name="리뷰 마스터",
+                description="일주일 동안 7개의 리뷰 작성하기",
+                points=180,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "write_reviews", "count": 7},
+                category="리뷰"
             ),
             Challenge(
-                "weekly_photographer", "사진 작가", "이번 주 3개 사진 리뷰 작성하기",
-                ChallengeType.WEEKLY, 100, {"photo_review_count": 3}, week_start, week_end
+                id="weekly_4",
+                name="친구 사랑",
+                description="일주일 동안 5명의 다른 친구와 식사하기",
+                points=250,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "dine_with_friends", "count": 5},
+                category="소통"
             ),
             Challenge(
-                "weekly_new_meeting", "새로운 만남", "이번 주 처음 만난 동료와 식사하기",
-                ChallengeType.WEEKLY, 180, {"new_colleague_meal": 1}, week_start, week_end
+                id="weekly_5",
+                name="사진 컬렉터",
+                description="일주일 동안 10장의 점심 사진 촬영하기",
+                points=120,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "take_photos", "count": 10},
+                category="기록"
+            ),
+            Challenge(
+                id="weekly_6",
+                name="건강 관리",
+                description="일주일 동안 5번의 건강한 메뉴 선택하기",
+                points=100,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "healthy_choices", "count": 5},
+                category="건강"
+            ),
+            Challenge(
+                id="weekly_7",
+                name="시간 관리",
+                description="일주일 동안 5번의 정시 점심 시간 지키기",
+                points=80,
+                type=ChallengeType.WEEKLY,
+                requirements={"action": "on_time_lunches", "count": 5},
+                category="습관"
             )
         ]
-        
-        return challenges
     
     @staticmethod
     def get_monthly_challenges() -> List[Challenge]:
-        """월간 미션 목록 반환"""
-        today = datetime.now()
-        month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if today.month == 12:
-            month_end = today.replace(year=today.year + 1, month=1, day=1)
-        else:
-            month_end = today.replace(month=today.month + 1, day=1)
-        
-        challenges = [
+        """월간 챌린지 목록 반환"""
+        return [
             Challenge(
-                "monthly_party_master", "파티 마스터", "이번 달 10개 파티 참여하기",
-                ChallengeType.MONTHLY, 800, {"party_participate_count": 10}, month_start, month_end
+                id="monthly_1",
+                name="맛집 마스터",
+                description="한 달 동안 20개의 다른 식당 방문하기",
+                points=500,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "visit_restaurants", "count": 20},
+                category="탐험"
             ),
             Challenge(
-                "monthly_review_master", "리뷰 마스터", "이번 달 20개 리뷰 작성하기",
-                ChallengeType.MONTHLY, 600, {"review_write_count": 20}, month_start, month_end
+                id="monthly_2",
+                name="소셜 스타",
+                description="한 달 동안 15번의 파티나 랜덤런치 참여하기",
+                points=600,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "join_activities", "count": 15},
+                category="소통"
             ),
             Challenge(
-                "monthly_random_lunch_master", "랜덤런치 마스터", "이번 달 8번 랜덤런치 참여하기",
-                ChallengeType.MONTHLY, 500, {"random_lunch_count": 8}, month_start, month_end
+                id="monthly_3",
+                name="리뷰 전문가",
+                description="한 달 동안 30개의 리뷰 작성하기",
+                points=400,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "write_reviews", "count": 30},
+                category="리뷰"
             ),
             Challenge(
-                "monthly_explorer", "탐험가", "이번 달 15개 다른 식당 방문하기",
-                ChallengeType.MONTHLY, 700, {"different_restaurant_count": 15}, month_start, month_end
+                id="monthly_4",
+                name="친구 네트워커",
+                description="한 달 동안 20명의 다른 친구와 식사하기",
+                points=800,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "dine_with_friends", "count": 20},
+                category="소통"
             ),
             Challenge(
-                "monthly_social_master", "소셜 마스터", "이번 달 30명의 다른 동료와 식사하기",
-                ChallengeType.MONTHLY, 1000, {"different_colleague_count": 30}, month_start, month_end
+                id="monthly_5",
+                name="사진 아티스트",
+                description="한 달 동안 50장의 점심 사진 촬영하기",
+                points=300,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "take_photos", "count": 50},
+                category="기록"
+            ),
+            Challenge(
+                id="monthly_6",
+                name="건강 전문가",
+                description="한 달 동안 20번의 건강한 메뉴 선택하기",
+                points=250,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "healthy_choices", "count": 20},
+                category="건강"
+            ),
+            Challenge(
+                id="monthly_7",
+                name="시간 관리자",
+                description="한 달 동안 20번의 정시 점심 시간 지키기",
+                points=200,
+                type=ChallengeType.MONTHLY,
+                requirements={"action": "on_time_lunches", "count": 20},
+                category="습관"
             )
         ]
-        
-        return challenges
     
     @staticmethod
     def get_special_challenges() -> List[Challenge]:
