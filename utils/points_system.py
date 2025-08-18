@@ -49,32 +49,33 @@ class PointsSystem:
             return "점심 절대자"
     
     @staticmethod
-    def get_activity_points(activity_type: str, **kwargs) -> int:
-        """활동 유형에 따른 포인트 반환"""
-        base_points = {
-            'random_lunch_participate': 30,
-            'party_participate': 25,
-            'party_create': 40,
-            'review_write': 20,
-            'review_photo': 10,
-            'first_visit_review': 15,
-            'comment_write': 8,
-            'friend_invite': 50,
-            'login_consecutive_1': 5,
-            'login_consecutive_7': 20,
-            'login_consecutive_30': 100,
-            'random_lunch_consecutive_3': 15,
-            'random_lunch_consecutive_7': 50,
-            'party_consecutive_5': 30,
-            'party_consecutive_10': 80,
-            'review_consecutive_5': 25,
-            'review_consecutive_10': 60,
-            'monthly_goal': 1000,
-            'quarterly_goal': 3000,
-            'yearly_goal': 10000
+    def get_activity_points(activity_type: str) -> int:
+        """활동별 포인트 반환"""
+        points_map = {
+            # 기존 활동들
+            "restaurant_visit": 50,
+            "review_write": 30,
+            "party_create": 100,
+            "party_join": 80,
+            "random_lunch": 60,
+            "friend_invite": 50,
+            "consecutive_visit": 20,
+            "consecutive_review": 15,
+            "consecutive_party": 25,
+            
+            # 리뷰 좋아요 관련 활동 추가
+            "review_like_given": 5,      # 리뷰에 좋아요를 누른 사용자
+            "review_like_received": 10,  # 리뷰를 받은 사용자
+            
+            # 기타 활동들
+            "first_visit": 100,
+            "first_review": 50,
+            "first_party": 150,
+            "weekly_goal": 200,
+            "monthly_goal": 500
         }
         
-        return base_points.get(activity_type, 0)
+        return points_map.get(activity_type, 0)
     
     @staticmethod
     def earn_points(user_id: str, activity_type: str, points: int, description: str = None) -> bool:
