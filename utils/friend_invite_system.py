@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from flask_sqlalchemy import SQLAlchemy
 
-db = SQLAlchemy()
+# db 객체는 app.py에서 가져와야 함
+db = None
 
 class FriendInvite:
     """친구 초대 정보 클래스"""
@@ -22,6 +23,12 @@ class FriendInviteSystem:
     """친구 초대 시스템 관리 클래스"""
     
     @staticmethod
+    def set_db(database):
+        """데이터베이스 객체 설정"""
+        global db
+        db = database
+    
+    @staticmethod
     def generate_invite_code() -> str:
         """초대 코드 생성"""
         # 8자리 랜덤 코드 생성
@@ -31,7 +38,9 @@ class FriendInviteSystem:
     def create_invite(inviter_id: str) -> Optional[str]:
         """초대 링크 생성"""
         try:
-            from app import db
+            if not db:
+                print("데이터베이스가 초기화되지 않았습니다.")
+                return None
             
             # 초대 코드 생성
             invite_code = FriendInviteSystem.generate_invite_code()
@@ -40,6 +49,8 @@ class FriendInviteSystem:
             expires_at = datetime.utcnow() + timedelta(days=7)
             
             # 초대 정보 저장
+            from app import FriendInvite
+            
             invite = FriendInvite(
                 invite_id=hashlib.md5(f"{inviter_id}_{datetime.utcnow()}".encode()).hexdigest(),
                 inviter_id=inviter_id,
@@ -48,14 +59,16 @@ class FriendInviteSystem:
                 expires_at=expires_at
             )
             
-            # 데이터베이스에 저장 (실제 구현 시)
-            # db.session.add(invite)
-            # db.session.commit()
+            # 데이터베이스에 저장
+            db.session.add(invite)
+            db.session.commit()
             
             return invite_code
             
         except Exception as e:
             print(f"초대 링크 생성 실패: {e}")
+            if db and db.session:
+                db.session.rollback()
             return None
     
     @staticmethod
