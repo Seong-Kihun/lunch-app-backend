@@ -7106,5 +7106,21 @@ def cleanup_invalid_dates():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# 모든 기타 일정 삭제 API 추가
+@app.route('/delete-all-schedules', methods=['GET'])
+def delete_all_schedules():
+    try:
+        # 모든 개인 일정 삭제
+        deleted_count = PersonalSchedule.query.delete()
+        db.session.commit()
+        
+        return jsonify({
+            "message": "모든 기타 일정 삭제 완료!",
+            "deleted_schedules": deleted_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
