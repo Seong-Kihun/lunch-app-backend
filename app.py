@@ -1416,11 +1416,30 @@ def get_events(employee_id):
                 
             # 반복 일정인 경우 미래 날짜에 확장
             if schedule.is_recurring and schedule.recurrence_type:
-                print(f"DEBUG: Expanding recurring schedule: {schedule.title}, type: {schedule.recurrence_type}")
+                print(f"DEBUG: Expanding recurring schedule: {schedule.title}, type: {schedule.recurrence_type}, start_date: {schedule_date}")
                 
                 # 시작일부터 90일 후까지 반복 일정 생성
                 start_date = schedule_date
-                for i in range(90):
+                
+                # 시작일 자체를 먼저 추가 (8월 20일이면 8월 20일에 표시)
+                if start_date >= today:
+                    start_date_str = start_date.strftime('%Y-%m-%d')
+                    if start_date_str not in events:
+                        events[start_date_str] = []
+                    
+                    events[start_date_str].append({
+                        'type': '기타 일정',
+                        'id': schedule.id,
+                        'title': schedule.title,
+                        'description': schedule.description,
+                        'date': start_date_str,
+                        'is_recurring': schedule.is_recurring,
+                        'recurrence_type': schedule.recurrence_type
+                    })
+                    print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
+                
+                # 이후 반복 일정 생성
+                for i in range(1, 90):  # 1부터 시작하여 시작일은 제외
                     future_date = start_date + timedelta(days=i)
                     
                     # 과거 날짜는 건너뛰기
@@ -1430,17 +1449,17 @@ def get_events(employee_id):
                     # 반복 유형에 따른 날짜 계산
                     should_include = False
                     if schedule.recurrence_type == 'weekly':
-                        # 매주 반복: 시작일로부터 7일 간격
+                        # 매주 반복: 시작일로부터 정확히 7일, 14일, 21일... 후
                         days_diff = (future_date - start_date).days
-                        should_include = days_diff % 7 == 0
+                        should_include = days_diff > 0 and days_diff % 7 == 0
                     elif schedule.recurrence_type == 'monthly':
-                        # 매월 반복: 시작일로부터 30일 간격
+                        # 매월 반복: 시작일로부터 정확히 30일, 60일, 90일... 후
                         days_diff = (future_date - start_date).days
-                        should_include = days_diff % 30 == 0
+                        should_include = days_diff > 0 and days_diff % 30 == 0
                     elif schedule.recurrence_type == 'yearly':
-                        # 매년 반복: 시작일로부터 365일 간격
+                        # 매년 반복: 시작일로부터 정확히 365일, 730일... 후
                         days_diff = (future_date - start_date).days
-                        should_include = days_diff % 365 == 0
+                        should_include = days_diff > 0 and days_diff % 365 == 0
                     
                     if should_include:
                         future_date_str = future_date.strftime('%Y-%m-%d')
@@ -1591,6 +1610,39 @@ def update_personal_schedule(schedule_id):
         db.session.commit()
         print(f"[DEBUG] 일반 일정 수정 - ID: {schedule.id}")
         return jsonify({'message': '일정이 수정되었습니다.'})
+
+@app.route('/personal_schedules/debug', methods=['GET'])
+def debug_personal_schedules():
+    """개인 일정 디버깅용 API - 모든 일정 조회"""
+    try:
+        employee_id = request.args.get('employee_id')
+        if not employee_id:
+            return jsonify({'message': 'employee_id가 필요합니다.'}), 400
+        
+        schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
+        debug_data = []
+        
+        for schedule in schedules:
+            debug_data.append({
+                'id': schedule.id,
+                'title': schedule.title,
+                'schedule_date': schedule.schedule_date,
+                'is_recurring': schedule.is_recurring,
+                'recurrence_type': schedule.recurrence_type,
+                'recurrence_interval': schedule.recurrence_interval,
+                'recurrence_end_date': schedule.recurrence_end_date,
+                'original_schedule_id': schedule.original_schedule_id
+            })
+        
+        return jsonify({
+            'employee_id': employee_id,
+            'total_schedules': len(debug_data),
+            'schedules': debug_data
+        })
+        
+    except Exception as e:
+        print(f"Error in debug_personal_schedules: {e}")
+        return jsonify({'error': '디버깅 중 오류가 발생했습니다.', 'details': str(e)}), 500
 
 @app.route('/personal_schedules/<int:schedule_id>', methods=['DELETE'])
 def delete_personal_schedule(schedule_id):
