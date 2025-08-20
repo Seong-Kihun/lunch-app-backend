@@ -1705,7 +1705,7 @@ def delete_personal_schedule(schedule_id):
     delete_mode = data.get('delete_mode', 'single')  # 'single' 또는 'all'
     
     if schedule.is_recurring and delete_mode == 'single':
-        # 반복 일정의 특정 날짜만 삭제: 해당 날짜에 개별 일정 생성하여 반복 일정을 덮어쓰기
+        # 반복 일정의 특정 날짜만 삭제: 해당 날짜에 "삭제된 일정" 표시 개별 일정 생성
         target_date = data.get('target_date')
         if not target_date:
             return jsonify({'message': '삭제할 날짜를 지정해주세요.'}), 400
@@ -1724,9 +1724,19 @@ def delete_personal_schedule(schedule_id):
             print(f"[DEBUG] 반복 일정 개별 삭제 - 날짜: {target_date}, 개별 일정 ID: {existing_individual.id}")
             return jsonify({'message': '해당 날짜의 일정이 삭제되었습니다.'})
         else:
-            # 해당 날짜에 반복 일정을 숨기는 플래그만 설정 (빈 일정 생성하지 않음)
-            # 실제로는 해당 날짜에 반복 일정이 표시되지 않도록 처리
-            print(f"[DEBUG] 반복 일정 개별 삭제 - 날짜: {target_date}, 반복 일정 숨김 처리")
+            # 해당 날짜에 "삭제된 일정"을 나타내는 개별 일정 생성
+            # 이 개별 일정이 반복 일정을 덮어써서 해당 날짜에만 반복 일정이 표시되지 않음
+            deleted_schedule = PersonalSchedule(
+                employee_id=schedule.employee_id,
+                schedule_date=target_date,
+                title=f"[삭제됨] {schedule.title}",
+                description="이 날짜의 반복 일정이 삭제되었습니다.",
+                is_recurring=False,
+                original_schedule_id=schedule.id
+            )
+            db.session.add(deleted_schedule)
+            db.session.commit()
+            print(f"[DEBUG] 반복 일정 개별 삭제 - 날짜: {target_date}, 삭제 표시 일정 생성")
             return jsonify({'message': '해당 날짜의 일정이 삭제되었습니다.'})
     
     elif schedule.is_recurring and delete_mode == 'all':
