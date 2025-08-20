@@ -1421,22 +1421,21 @@ def get_events(employee_id):
                 # 시작일부터 90일 후까지 반복 일정 생성
                 start_date = schedule_date
                 
-                # 시작일 자체를 먼저 추가 (8월 22일이면 8월 22일에 표시)
-                if start_date >= today:
-                    start_date_str = start_date.strftime('%Y-%m-%d')
-                    if start_date_str not in events:
-                        events[start_date_str] = []
-                    
-                    events[start_date_str].append({
-                        'type': '기타 일정',
-                        'id': schedule.id,
-                        'title': schedule.title,
-                        'description': schedule.description,
-                        'date': start_date_str,
-                        'is_recurring': schedule.is_recurring,
-                        'recurrence_type': schedule.recurrence_type
-                    })
-                    print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
+                # 시작일 자체를 무조건 추가 (과거여도 반복 일정의 시작일이므로 포함)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                if start_date_str not in events:
+                    events[start_date_str] = []
+                
+                events[start_date_str].append({
+                    'type': '기타 일정',
+                    'id': schedule.id,
+                    'title': schedule.title,
+                    'description': schedule.description,
+                    'date': start_date_str,
+                    'is_recurring': schedule.is_recurring,
+                    'recurrence_type': schedule.recurrence_type
+                })
+                print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
                 
                 # 이후 반복 일정 생성 (정확한 간격으로만)
                 max_weeks = 12  # 최대 12주까지만 반복
