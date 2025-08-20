@@ -1390,7 +1390,7 @@ def get_events(employee_id):
         print(f"DEBUG: Today (Seoul): {today}")
         
         for schedule in schedules:
-            print(f"DEBUG: Processing schedule ID {schedule.id}: date={schedule.schedule_date}, title='{schedule.title}', is_recurring={schedule.is_recurring}")
+                            # 디버그 로그 제거
             # 날짜 데이터 검증 및 처리
             try:
                 # NaN 값이나 잘못된 날짜 형식 확인
@@ -1400,11 +1400,11 @@ def get_events(employee_id):
                     
                 # 과거 일정은 제외 (하지만 반복 일정은 시작일이 과거여도 미래 반복을 위해 포함)
                 schedule_date = datetime.strptime(schedule.schedule_date, '%Y-%m-%d').date()
-                print(f"DEBUG: Schedule date: {schedule_date}, Today: {today}, Is past: {schedule_date < today}")
+                # 디버그 로그 제거
                 
                 # 반복 일정이 아닌 경우에만 과거 일정 제외
                 if not schedule.is_recurring and schedule_date < today:
-                    print(f"DEBUG: Skipping past non-recurring schedule: {schedule_date}")
+                    # 디버그 로그 제거
                     continue
                     
             except (ValueError, TypeError) as e:
@@ -1416,7 +1416,7 @@ def get_events(employee_id):
                 
             # 반복 일정인 경우 미래 날짜에 확장
             if schedule.is_recurring and schedule.recurrence_type:
-                print(f"DEBUG: Expanding recurring schedule: {schedule.title}, type: {schedule.recurrence_type}, start_date: {schedule_date}")
+                # 디버그 로그 제거
                 
                 # 시작일부터 90일 후까지 반복 일정 생성
                 start_date = schedule_date
@@ -1435,7 +1435,7 @@ def get_events(employee_id):
                     'is_recurring': schedule.is_recurring,
                     'recurrence_type': schedule.recurrence_type
                 })
-                print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
+                                    # 디버그 로그 제거
                 
                 # 이후 반복 일정 생성 (시작일 이후부터 정확한 간격으로만)
                 max_weeks = 520 # 최대 520주(10년)까지 반복 (무제한에 가까운 기간)
@@ -1479,7 +1479,7 @@ def get_events(employee_id):
                         'is_recurring': schedule.is_recurring,
                         'recurrence_type': schedule.recurrence_type
                     })
-                    print(f"DEBUG: Added recurring event week {week} for {future_date_str}: {schedule.title}")
+                    # 디버그 로그 제거
             else:
                 # 일반 일정
                 events[schedule.schedule_date].append({
@@ -1492,7 +1492,7 @@ def get_events(employee_id):
                     'recurrence_type': schedule.recurrence_type
                 })
         
-        print(f"DEBUG: Final events data: {events}")
+        # 디버그 로그 제거
         return jsonify(events)
         
     except Exception as e:
