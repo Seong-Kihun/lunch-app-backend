@@ -1732,7 +1732,8 @@ def delete_personal_schedule(schedule_id):
                 title=f"[삭제됨] {schedule.title}",
                 description="이 날짜의 반복 일정이 삭제되었습니다.",
                 is_recurring=False,
-                original_schedule_id=schedule.id
+                original_schedule_id=schedule.id,
+                is_deleted_override=True  # 🚨 중요: 삭제된 오버라이드 플래그 추가
             )
             db.session.add(deleted_schedule)
             db.session.commit()
