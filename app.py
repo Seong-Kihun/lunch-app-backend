@@ -1408,7 +1408,7 @@ def get_events(employee_id):
                 events[schedule.schedule_date] = []
                 
             events[schedule.schedule_date].append({
-                'type': '개인 일정',
+                'type': '기타 일정',
                 'id': schedule.id,
                 'title': schedule.title,
                 'description': schedule.description,
