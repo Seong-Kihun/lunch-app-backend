@@ -1340,8 +1340,20 @@ def get_events(employee_id):
         ).all()
         
         for party in parties:
-            # 과거 파티는 제외
-            if datetime.strptime(party.party_date, '%Y-%m-%d').date() < today:
+            # 날짜 데이터 검증 및 처리
+            try:
+                # NaN 값이나 잘못된 날짜 형식 확인
+                if not party.party_date or 'NaN' in str(party.party_date):
+                    print(f"Warning: Invalid party_date found: {party.party_date} for party ID {party.id}")
+                    continue
+                    
+                # 과거 파티는 제외
+                party_date = datetime.strptime(party.party_date, '%Y-%m-%d').date()
+                if party_date < today:
+                    continue
+                    
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Failed to parse party_date '{party.party_date}' for party ID {party.id}: {e}")
                 continue
                 
             if party.party_date not in events:
@@ -1376,8 +1388,20 @@ def get_events(employee_id):
         schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
         
         for schedule in schedules:
-            # 과거 일정은 제외
-            if datetime.strptime(schedule.schedule_date, '%Y-%m-%d').date() < today:
+            # 날짜 데이터 검증 및 처리
+            try:
+                # NaN 값이나 잘못된 날짜 형식 확인
+                if not schedule.schedule_date or 'NaN' in str(schedule.schedule_date):
+                    print(f"Warning: Invalid schedule_date found: {schedule.schedule_date} for schedule ID {schedule.id}")
+                    continue
+                    
+                # 과거 일정은 제외
+                schedule_date = datetime.strptime(schedule.schedule_date, '%Y-%m-%d').date()
+                if schedule_date < today:
+                    continue
+                    
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Failed to parse schedule_date '{schedule.schedule_date}' for schedule ID {schedule.id}: {e}")
                 continue
                 
             if schedule.schedule_date not in events:
@@ -7043,6 +7067,41 @@ def delete_all_parties():
         db.session.commit()
         
         return jsonify({"message": "모든 파티 삭제 완료!"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# 잘못된 날짜 데이터 정리 API 추가
+@app.route('/cleanup-invalid-dates', methods=['GET'])
+def cleanup_invalid_dates():
+    try:
+        # 잘못된 날짜가 있는 개인 일정 삭제
+        invalid_schedules = PersonalSchedule.query.all()
+        deleted_schedules = 0
+        
+        for schedule in invalid_schedules:
+            if not schedule.schedule_date or 'NaN' in str(schedule.schedule_date):
+                print(f"Deleting invalid schedule: ID {schedule.id}, date: {schedule.schedule_date}")
+                db.session.delete(schedule)
+                deleted_schedules += 1
+        
+        # 잘못된 날짜가 있는 파티 삭제
+        invalid_parties = Party.query.all()
+        deleted_parties = 0
+        
+        for party in invalid_parties:
+            if not party.party_date or 'NaN' in str(party.party_date):
+                print(f"Deleting invalid party: ID {party.id}, date: {party.party_date}")
+                db.session.delete(party)
+                deleted_parties += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "잘못된 날짜 데이터 정리 완료!",
+            "deleted_schedules": deleted_schedules,
+            "deleted_parties": deleted_parties
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
