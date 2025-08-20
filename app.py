@@ -7034,5 +7034,18 @@ def generate_today_recommendations():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# 파티 데이터 삭제 API 추가
+@app.route('/delete-all-parties', methods=['GET'])
+def delete_all_parties():
+    try:
+        # 모든 파티 삭제
+        Party.query.delete()
+        db.session.commit()
+        
+        return jsonify({"message": "모든 파티 삭제 완료!"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
