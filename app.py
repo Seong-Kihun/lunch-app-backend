@@ -1438,7 +1438,7 @@ def get_events(employee_id):
                 print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
                 
                 # 이후 반복 일정 생성 (시작일 이후부터 정확한 간격으로만)
-                max_weeks = 12  # 최대 12주까지만 반복
+                max_weeks = 520 # 최대 520주(10년)까지 반복 (무제한에 가까운 기간)
                 for week in range(1, max_weeks + 1):
                     if schedule.recurrence_type == 'weekly':
                         # 매주 반복: 시작일로부터 정확히 7일, 14일, 21일... 후
