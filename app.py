@@ -1544,7 +1544,12 @@ def delete_personal_schedule(schedule_id):
     schedule = PersonalSchedule.query.get(schedule_id)
     if not schedule: return jsonify({'message': '일정을 찾을 수 없습니다.'}), 404
     
-    data = request.get_json() or {}
+    # DELETE 요청에서 JSON 본문이 없을 수 있으므로 안전하게 처리
+    try:
+        data = request.get_json() or {}
+    except Exception:
+        data = {}
+    
     delete_mode = data.get('delete_mode', 'single')  # 'single' 또는 'all'
     
     if schedule.is_recurring and delete_mode == 'single':
