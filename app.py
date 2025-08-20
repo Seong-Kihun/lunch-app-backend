@@ -1386,8 +1386,11 @@ def get_events(employee_id):
         
         # 개인 일정 조회
         schedules = PersonalSchedule.query.filter_by(employee_id=employee_id).all()
+        print(f"DEBUG: Found {len(schedules)} personal schedules for employee {employee_id}")
+        print(f"DEBUG: Today (Seoul): {today}")
         
         for schedule in schedules:
+            print(f"DEBUG: Processing schedule ID {schedule.id}: date={schedule.schedule_date}, title='{schedule.title}', is_recurring={schedule.is_recurring}")
             # 날짜 데이터 검증 및 처리
             try:
                 # NaN 값이나 잘못된 날짜 형식 확인
@@ -1395,9 +1398,13 @@ def get_events(employee_id):
                     print(f"Warning: Invalid schedule_date found: {schedule.schedule_date} for schedule ID {schedule.id}")
                     continue
                     
-                # 과거 일정은 제외
+                # 과거 일정은 제외 (하지만 반복 일정은 시작일이 과거여도 미래 반복을 위해 포함)
                 schedule_date = datetime.strptime(schedule.schedule_date, '%Y-%m-%d').date()
-                if schedule_date < today:
+                print(f"DEBUG: Schedule date: {schedule_date}, Today: {today}, Is past: {schedule_date < today}")
+                
+                # 반복 일정이 아닌 경우에만 과거 일정 제외
+                if not schedule.is_recurring and schedule_date < today:
+                    print(f"DEBUG: Skipping past non-recurring schedule: {schedule_date}")
                     continue
                     
             except (ValueError, TypeError) as e:
@@ -1407,16 +1414,62 @@ def get_events(employee_id):
             if schedule.schedule_date not in events:
                 events[schedule.schedule_date] = []
                 
-            events[schedule.schedule_date].append({
-                'type': '기타 일정',
-                'id': schedule.id,
-                'title': schedule.title,
-                'description': schedule.description,
-                'date': schedule.schedule_date,
-                'is_recurring': schedule.is_recurring,
-                'recurrence_type': schedule.recurrence_type
-            })
+            # 반복 일정인 경우 미래 날짜에 확장
+            if schedule.is_recurring and schedule.recurrence_type:
+                print(f"DEBUG: Expanding recurring schedule: {schedule.title}, type: {schedule.recurrence_type}")
+                
+                # 시작일부터 90일 후까지 반복 일정 생성
+                start_date = schedule_date
+                for i in range(90):
+                    future_date = start_date + timedelta(days=i)
+                    
+                    # 과거 날짜는 건너뛰기
+                    if future_date < today:
+                        continue
+                        
+                    # 반복 유형에 따른 날짜 계산
+                    should_include = False
+                    if schedule.recurrence_type == 'weekly':
+                        # 매주 반복: 시작일로부터 7일 간격
+                        days_diff = (future_date - start_date).days
+                        should_include = days_diff % 7 == 0
+                    elif schedule.recurrence_type == 'monthly':
+                        # 매월 반복: 시작일로부터 30일 간격
+                        days_diff = (future_date - start_date).days
+                        should_include = days_diff % 30 == 0
+                    elif schedule.recurrence_type == 'yearly':
+                        # 매년 반복: 시작일로부터 365일 간격
+                        days_diff = (future_date - start_date).days
+                        should_include = days_diff % 365 == 0
+                    
+                    if should_include:
+                        future_date_str = future_date.strftime('%Y-%m-%d')
+                        if future_date_str not in events:
+                            events[future_date_str] = []
+                        
+                        events[future_date_str].append({
+                            'type': '기타 일정',
+                            'id': schedule.id,
+                            'title': schedule.title,
+                            'description': schedule.description,
+                            'date': future_date_str,
+                            'is_recurring': schedule.is_recurring,
+                            'recurrence_type': schedule.recurrence_type
+                        })
+                        print(f"DEBUG: Added recurring event for {future_date_str}: {schedule.title}")
+            else:
+                # 일반 일정
+                events[schedule.schedule_date].append({
+                    'type': '기타 일정',
+                    'id': schedule.id,
+                    'title': schedule.title,
+                    'description': schedule.description,
+                    'date': schedule.schedule_date,
+                    'is_recurring': schedule.is_recurring,
+                    'recurrence_type': schedule.recurrence_type
+                })
         
+        print(f"DEBUG: Final events data: {events}")
         return jsonify(events)
         
     except Exception as e:
