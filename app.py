@@ -1454,6 +1454,12 @@ def get_events(employee_id):
                     
                     # 시작일과 동일한 날짜는 건너뛰기 (중복 방지)
                     if future_date == start_date:
+                        print(f"DEBUG: Skipping duplicate start date: {future_date_str}")
+                        continue
+                    
+                    # 시작일이 오늘인 경우, 첫 번째 반복은 7일 후부터 시작
+                    if start_date == today and week == 1:
+                        print(f"DEBUG: Skipping first week for today start date")
                         continue
                     
                     # 과거 날짜는 건너뛰기
