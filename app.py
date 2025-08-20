@@ -1437,7 +1437,7 @@ def get_events(employee_id):
                 })
                 print(f"DEBUG: Added recurring event start date {start_date_str}: {schedule.title}")
                 
-                # 이후 반복 일정 생성 (정확한 간격으로만)
+                # 이후 반복 일정 생성 (시작일 이후부터 정확한 간격으로만)
                 max_weeks = 12  # 최대 12주까지만 반복
                 for week in range(1, max_weeks + 1):
                     if schedule.recurrence_type == 'weekly':
@@ -1450,6 +1450,10 @@ def get_events(employee_id):
                         # 매년 반복: 시작일로부터 정확히 365일, 730일... 후
                         future_date = start_date + timedelta(days=week * 365)
                     else:
+                        continue
+                    
+                    # 시작일과 동일한 날짜는 건너뛰기 (중복 방지)
+                    if future_date == start_date:
                         continue
                     
                     # 과거 날짜는 건너뛰기
