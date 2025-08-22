@@ -1898,7 +1898,7 @@ def sync_excel_data():
             return jsonify({'error': '식당 데이터가 제공되지 않았습니다.'}), 400
         
         restaurants_data = data['restaurants']
-        print(f"🔍 [백엔드] Excel/CSV에서 {len(restaurants_data)}개의 식당 데이터 수신")
+        print(f"Excel/CSV에서 {len(restaurants_data)}개의 식당 데이터 수신")
         
         # 데이터베이스에 추가
         for restaurant_info in restaurants_data:
@@ -1921,7 +1921,7 @@ def sync_excel_data():
         
         db.session.commit()
         final_count = Restaurant.query.count()
-        print(f"🔍 [백엔드] {final_count}개의 식당 데이터 동기화 완료")
+        print(f"{final_count}개의 식당 데이터 동기화 완료")
         
         return jsonify({
             'message': f'{final_count}개의 식당 데이터가 동기화되었습니다.',
@@ -1930,13 +1930,11 @@ def sync_excel_data():
         
     except Exception as e:
         db.session.rollback()
-        print(f"🔍 [백엔드] Excel/CSV 데이터 동기화 오류: {e}")
+        print(f"Excel/CSV 데이터 동기화 오류: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/restaurants', methods=['GET'])
 def get_restaurants():
-    print(f"🔍 [백엔드] /restaurants API 호출 시작")
-    
     # 먼저 파라미터 파싱
     query = request.args.get('query', '')
     sort_by = request.args.get('sort_by', 'name')
@@ -1946,12 +1944,8 @@ def get_restaurants():
     radius = request.args.get('radius', 10)  # 기본 10km
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)  # 한 번에 50개씩
-
-    print(f"🔍 [백엔드] 파라미터 파싱 완료")
-    print(f"🔍 [백엔드] 파라미터: query={query}, sort_by={sort_by}, category={category_filter}, page={page}, per_page={per_page}")
     
     q = Restaurant.query
-    print(f"🔍 [백엔드] Restaurant.query 생성 완료")
     
     # 카테고리 필터
     if category_filter:
@@ -1991,18 +1985,14 @@ def get_restaurants():
         filtered_count = q.count()
         print(f"지역 필터링 후 식당 수: {filtered_count}")
     
-    print(f"🔍 [백엔드] 필터링 완료, 쿼리 실행 시작")
-    
     # 전체 데이터를 먼저 가져와서 정렬 (전체 데이터 기반 정렬)
     try:
         all_restaurants = q.all()
-        print(f"🔍 [백엔드] 쿼리 실행 완료, 결과 수: {len(all_restaurants)}")
     except Exception as e:
-        print(f"🔍 [백엔드] 쿼리 실행 오류: {e}")
+        print(f"쿼리 실행 오류: {e}")
         return jsonify({'error': '데이터베이스 쿼리 오류'}), 500
     
     # 정렬 로직 개선
-    print(f"🔍 [백엔드] 정렬 시작: {sort_by}")
     try:
         if sort_by == 'rating_desc':
             # 평점순 정렬 (내림차순)
@@ -2016,14 +2006,12 @@ def get_restaurants():
         else:
             # 이름순 정렬 (기본값)
             all_restaurants.sort(key=lambda r: r.name)
-        print(f"🔍 [백엔드] 정렬 완료")
     except Exception as e:
-        print(f"🔍 [백엔드] 정렬 오류: {e}")
+        print(f"정렬 오류: {e}")
         return jsonify({'error': '정렬 오류'}), 500
     
     # 전체 결과 수
     total_count = len(all_restaurants)
-    print(f"🔍 [백엔드] 총 결과 수: {total_count}")
     
     # 수동 페이지네이션 구현
     start_index = (page - 1) * per_page
@@ -2033,7 +2021,6 @@ def get_restaurants():
     # 페이지 정보 계산
     total_pages = (total_count + per_page - 1) // per_page
     
-    print(f"🔍 [백엔드] 데이터 변환 시작")
     try:
         restaurants_list = [{
             'id': r.id, 
@@ -2046,12 +2033,10 @@ def get_restaurants():
             'review_count': r.review_count,
             'recommend_count': get_restaurant_recommend_count(r.id)  # 오찬 추천 하트 개수 추가
         } for r in restaurants_q]
-        print(f"🔍 [백엔드] 데이터 변환 완료, 최종 결과 수: {len(restaurants_list)}")
     except Exception as e:
-        print(f"🔍 [백엔드] 데이터 변환 오류: {e}")
+        print(f"데이터 변환 오류: {e}")
         return jsonify({'error': '데이터 변환 오류'}), 500
     
-    print(f"🔍 [백엔드] API 응답 전송 시작")
     response_data = {
         'restaurants': restaurants_list,
         'total': total_count,
@@ -2059,7 +2044,6 @@ def get_restaurants():
         'current_page': page,
         'per_page': per_page
     }
-    print(f"🔍 [백엔드] API 응답 전송 완료")
     return jsonify(response_data)
 
 @app.route('/restaurants/<int:restaurant_id>', methods=['GET'])
