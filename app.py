@@ -1886,8 +1886,8 @@ def add_restaurant():
 @app.route('/restaurants', methods=['GET'])
 def get_restaurants():
     print(f"🔍 [백엔드] /restaurants API 호출 시작")
-    print(f"🔍 [백엔드] 파라미터: query={query}, sort_by={sort_by}, category={category_filter}, page={page}, per_page={per_page}")
     
+    # 먼저 파라미터 파싱
     query = request.args.get('query', '')
     sort_by = request.args.get('sort_by', 'name')
     category_filter = request.args.get('category', None)
@@ -1898,6 +1898,7 @@ def get_restaurants():
     per_page = request.args.get('per_page', 50, type=int)  # 한 번에 50개씩
 
     print(f"🔍 [백엔드] 파라미터 파싱 완료")
+    print(f"🔍 [백엔드] 파라미터: query={query}, sort_by={sort_by}, category={category_filter}, page={page}, per_page={per_page}")
     
     q = Restaurant.query
     print(f"🔍 [백엔드] Restaurant.query 생성 완료")
