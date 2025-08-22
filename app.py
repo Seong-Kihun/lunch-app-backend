@@ -1883,6 +1883,56 @@ def add_restaurant():
     db.session.commit()
     return jsonify({'message': '새로운 맛집이 등록되었습니다!', 'restaurant_id': new_restaurant.id}), 201
 
+@app.route('/restaurants/sync-excel-data', methods=['POST'])
+def sync_excel_data():
+    """Excel/CSV 데이터를 백엔드 데이터베이스에 동기화"""
+    try:
+        # 기존 데이터가 있는지 확인
+        existing_count = Restaurant.query.count()
+        if existing_count > 0:
+            return jsonify({'message': f'이미 {existing_count}개의 식당 데이터가 있습니다. 동기화가 필요하지 않습니다.'}), 200
+        
+        # 프론트엔드에서 Excel/CSV 데이터를 전송받아 처리
+        data = request.get_json()
+        if not data or 'restaurants' not in data:
+            return jsonify({'error': '식당 데이터가 제공되지 않았습니다.'}), 400
+        
+        restaurants_data = data['restaurants']
+        print(f"🔍 [백엔드] Excel/CSV에서 {len(restaurants_data)}개의 식당 데이터 수신")
+        
+        # 데이터베이스에 추가
+        for restaurant_info in restaurants_data:
+            # Excel/CSV 데이터 구조에 맞게 파싱
+            name = restaurant_info.get('name', '')
+            category = restaurant_info.get('category', '기타')
+            address = restaurant_info.get('address', '')
+            latitude = restaurant_info.get('latitude')
+            longitude = restaurant_info.get('longitude')
+            
+            if name:  # 이름이 있는 경우만 추가
+                restaurant = Restaurant(
+                    name=name,
+                    category=category,
+                    address=address,
+                    latitude=latitude,
+                    longitude=longitude
+                )
+                db.session.add(restaurant)
+        
+        db.session.commit()
+        final_count = Restaurant.query.count()
+        print(f"🔍 [백엔드] {final_count}개의 식당 데이터 동기화 완료")
+        
+        return jsonify({
+            'message': f'{final_count}개의 식당 데이터가 동기화되었습니다.',
+            'count': final_count
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"🔍 [백엔드] Excel/CSV 데이터 동기화 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/restaurants', methods=['GET'])
 def get_restaurants():
     print(f"🔍 [백엔드] /restaurants API 호출 시작")
