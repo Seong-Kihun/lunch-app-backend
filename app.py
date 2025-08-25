@@ -5451,6 +5451,8 @@ def add_friend():
         user_id = data.get('user_id')
         friend_id = data.get('friend_id')
         
+        print(f"🔍 [친구추가] 요청 데이터: user_id={user_id}, friend_id={friend_id}")
+        
         if not user_id or not friend_id:
             return jsonify({'message': '사용자 ID와 친구 ID가 필요합니다.'}), 400
     else:
@@ -5474,6 +5476,7 @@ def add_friend():
             return jsonify({'error': '인증이 필요합니다.'}), 401
     
     if user_id == friend_id:
+        print(f"⚠️ [친구추가] 자기 자신 추가 시도: user_id={user_id}, friend_id={friend_id}")
         return jsonify({'message': '자기 자신을 친구로 추가할 수 없습니다.'}), 400
     
     # 이미 친구인지 확인 (양방향 확인)
@@ -5509,6 +5512,25 @@ def add_friend():
     db.session.commit()
     
     print(f"✅ [친구추가] 성공: {user_id}와 {friend_id}가 친구가 되었습니다.")
+    
+    # 추가된 친구 관계 확인
+    added_friendship1 = Friendship.query.filter_by(
+        requester_id=user_id,
+        receiver_id=friend_id,
+        status='accepted'
+    ).first()
+    
+    added_friendship2 = Friendship.query.filter_by(
+        requester_id=friend_id,
+        receiver_id=user_id,
+        status='accepted'
+    ).first()
+    
+    if added_friendship1 and added_friendship2:
+        print(f"✅ [친구추가] 데이터베이스 확인: 양방향 친구 관계 생성 완료")
+    else:
+        print(f"⚠️ [친구추가] 데이터베이스 확인: 친구 관계 생성 실패")
+    
     return jsonify({'message': '친구가 추가되었습니다.'}), 201
 
 @app.route('/friends/remove', methods=['POST'])
