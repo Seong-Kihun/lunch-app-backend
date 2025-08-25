@@ -3566,9 +3566,9 @@ def get_all_parties():
     
     if employee_id and is_from_match:
         # 특정 사용자의 랜덤런치 그룹 조회
-        parties = Party.query.filter(
+        parties = Party.query.join(PartyMember).filter(
             Party.is_from_match == True,  # type: ignore
-            Party.members_employee_ids.contains(employee_id)  # type: ignore
+            PartyMember.employee_id == employee_id
         ).order_by(desc(Party.id)).all()
     else:
         # 일반 파티 조회 (랜덤런치 제외)
@@ -3826,7 +3826,9 @@ def get_my_parties(employee_id):
     
     parties_data = []
     for party in my_parties:
-        member_ids = party.members_employee_ids.split(',') if party.members_employee_ids else []
+        # PartyMember 테이블에서 멤버 정보 조회
+        party_members = PartyMember.query.filter_by(party_id=party.id).all()
+        member_ids = [member.employee_id for member in party_members]
         members_details = [{
             'employee_id': u.employee_id, 
             'nickname': u.nickname,
@@ -3860,14 +3862,18 @@ def get_my_regular_parties(employee_id):
             Party.is_from_match == False,  # type: ignore
             or_(
                 Party.host_employee_id == employee_id,  # type: ignore
-                Party.members_employee_ids.contains(employee_id)  # type: ignore
+                Party.id.in_(
+                    db.session.query(PartyMember.party_id).filter(PartyMember.employee_id == employee_id)
+                )
             )
         )
     ).all()
     
     parties_data = []
     for party in my_regular_parties:
-        member_ids = party.members_employee_ids.split(',') if party.members_employee_ids else []
+        # PartyMember 테이블에서 멤버 정보 조회
+        party_members = PartyMember.query.filter_by(party_id=party.id).all()
+        member_ids = [member.employee_id for member in party_members]
         members_details = [{
             'employee_id': u.employee_id, 
             'nickname': u.nickname,
@@ -3965,7 +3971,7 @@ def request_match():
                     party_time='12:00',
                     meeting_location='KOICA 본사',
                     max_members=2,
-                    members_employee_ids=f"{employee_id},{best_match.employee_id}",
+                    # members_employee_ids 필드 제거 (PartyMember 테이블 사용)
                     is_from_match=True
                 )
                 db.session.add(new_party)
@@ -4057,8 +4063,8 @@ def get_available_dates():
         
         # 해당 날짜에 파티나 개인 일정이 있는지 확인
         # SQLAlchemy 쿼리 - 타입 힌팅 경고는 무시해도 됨
-        party_query = Party.query.filter(
-            Party.members_employee_ids.contains(employee_id),  # type: ignore
+        party_query = Party.query.join(PartyMember).filter(
+            PartyMember.employee_id == employee_id,
             Party.party_date == date_str  # type: ignore
         )
         has_party = party_query.first() is not None
@@ -4529,8 +4535,8 @@ def get_my_chats(employee_id):
     seen_chat_room_ids = set()
     
     # 랜덤 런치 채팅방들도 일반 채팅방으로 분류
-    random_lunch_parties = Party.query.filter(
-        Party.members_employee_ids.contains(employee_id),
+    random_lunch_parties = Party.query.join(PartyMember).filter(
+        PartyMember.employee_id == employee_id,
         Party.is_from_match == True
     ).order_by(desc(Party.id)).all()
     
