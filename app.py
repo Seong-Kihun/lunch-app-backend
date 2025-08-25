@@ -3797,7 +3797,7 @@ def join_party(party_id):
 
 @app.route('/parties/<int:party_id>/leave', methods=['POST'])
 def leave_party(party_id):
-    print(f"🔍 [파티나가기] 파티 {party_id}에서 나가기 시도")
+    
     
     party = Party.query.get(party_id)
     if not party:
@@ -3810,8 +3810,7 @@ def leave_party(party_id):
         print(f"❌ [파티나가기] 사용자 ID 누락")
         return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
     
-    print(f"🔍 [파티나가기] 사용자 {employee_id}가 파티 {party_id}에서 나가기 시도")
-    print(f"🔍 [파티나가기] 파티 정보: 호스트={party.host_employee_id}, 랜덤런치={party.is_from_match}")
+    
     
     # 랜덤런치로 생성된 파티는 호스트도 나갈 수 있음
     if party.host_employee_id == employee_id and not party.is_from_match:
@@ -3824,7 +3823,7 @@ def leave_party(party_id):
         
         # 호스트가 나가는 경우, 파티 자체도 삭제 (랜덤런치 파티의 경우)
         if party.host_employee_id == employee_id and party.is_from_match:
-            print(f"🔍 [파티나가기] 랜덤런치 파티 호스트 나가기: 파티 {party_id} 삭제")
+    
             db.session.delete(party)
         
         db.session.commit()
@@ -4289,33 +4288,13 @@ def get_my_proposals():
     if not employee_id:
         return jsonify({'message': 'employee_id가 필요합니다.'}), 400
     
-    print(f"🔍 [제안조회] 사용자 {employee_id}의 제안 조회 시작")
-    
-    # 내가 보낸 제안들
-    sent_proposals = LunchProposal.query.filter_by(proposer_id=employee_id).order_by(desc(LunchProposal.created_at)).all()
-    print(f"🔍 [제안조회] 보낸 제안: {len(sent_proposals)}개")
-    for prop in sent_proposals:
-        print(f"  - 제안 {prop.id}: {prop.proposer_id} -> {prop.recipient_ids}")
-    
-    # 내가 받은 제안들
-    received_proposals = LunchProposal.query.filter(
-        LunchProposal.recipient_ids.contains(employee_id)  # type: ignore
-    ).order_by(desc(LunchProposal.created_at)).all()
-    print(f"🔍 [제안조회] 받은 제안: {len(received_proposals)}개")
-    for prop in received_proposals:
-        print(f"  - 제안 {prop.id}: {prop.proposer_id} -> {prop.recipient_ids}")
-    
-    # 중복 제안 확인 (내가 보낸 제안이 받은 제안에도 포함되는지)
-    duplicate_proposals = []
-    for sent_prop in sent_proposals:
-        for received_prop in received_proposals:
-            if sent_prop.id == received_prop.id:
-                duplicate_proposals.append(sent_prop.id)
-    
-    if duplicate_proposals:
-        print(f"⚠️ [제안조회] 중복 제안 발견: {duplicate_proposals}")
-    else:
-        print(f"✅ [제안조회] 중복 제안 없음")
+        # 내가 보낸 제안들
+        sent_proposals = LunchProposal.query.filter_by(proposer_id=employee_id).order_by(desc(LunchProposal.created_at)).all()
+        
+        # 내가 받은 제안들
+        received_proposals = LunchProposal.query.filter(
+            LunchProposal.recipient_ids.contains(employee_id)  # type: ignore
+        ).order_by(desc(LunchProposal.created_at)).all()
     
     def format_proposal(proposal):
         # 수락한 사람들의 닉네임 리스트
@@ -5515,7 +5494,7 @@ def add_friend():
         return jsonify({'message': '이미 친구로 추가되어 있습니다.'}), 400
     
     # 양방향 친구 관계 생성
-    print(f"🔍 [친구추가] 친구 관계 생성: {user_id} <-> {friend_id}")
+    
     
     # user_id -> friend_id 친구 관계
     new_friendship1 = Friendship(requester_id=user_id, receiver_id=friend_id)
@@ -7756,13 +7735,13 @@ def get_dev_user(employee_id):
         # 요청된 employee_id에 해당하는 유저 반환
         if employee_id in temp_users:
             user_data = temp_users[employee_id]
-            print(f"🔍 [개발용] 임시 유저 데이터 반환: {user_data}")
+    
             return jsonify(user_data)
         else:
             return jsonify({'error': '사용자를 찾을 수 없습니다.'}), 404
             
     except Exception as e:
-        print(f"🔍 [개발용] 임시 유저 API 오류: {e}")
+
         return jsonify({'error': '임시 유저 데이터 조회 중 오류가 발생했습니다.'}), 500
 
 # 🚀 개발용 임시 유저 목록 API
@@ -7795,7 +7774,7 @@ def get_dev_users_list():
         ]
         return jsonify(users_list)
     except Exception as e:
-        print(f"🔍 [개발용] 임시 유저 목록 API 오류: {e}")
+
         return jsonify({'error': '임시 유저 목록 조회 중 오류가 발생했습니다.'}), 500
 
 # 🚀 개발용 점심 약속 히스토리 API
@@ -7864,14 +7843,14 @@ def get_dev_lunch_history(employee_id):
                         'type': 'lunch'
                     })
         
-        print(f"🔍 [개발용] 점심 약속 히스토리 생성: {employee_id}, {len(history_data)}개")
+
         return jsonify({
             'employee_id': employee_id,
             'lunch_history': history_data
         })
         
     except Exception as e:
-        print(f"🔍 [개발용] 점심 약속 히스토리 API 오류: {e}")
+
         return jsonify({'error': '점심 약속 히스토리 조회 중 오류가 발생했습니다.'}), 500
 
 def get_nickname_by_id(employee_id):
@@ -7903,7 +7882,7 @@ def get_dev_friends(employee_id):
             ).all()
             
             if actual_friendships:
-                print(f"🔍 [개발용] 실제 친구 관계 발견: {employee_id}, {len(actual_friendships)}명")
+
                 # 실제 친구 관계가 있으면 그것을 사용
                 friends_data = []
                 for friendship in actual_friendships:
@@ -7937,7 +7916,7 @@ def get_dev_friends(employee_id):
                             'preferredTime': friend_data.get('preferredTime', '12:00')
                         })
                 
-                print(f"✅ [개발용] 실제 친구 관계 반환: {len(friends_data)}명")
+
                 return jsonify(friends_data)
                 
         except Exception as db_error:
@@ -8003,7 +7982,7 @@ def get_dev_friends(employee_id):
             return jsonify([])  # 친구가 없는 경우 빈 배열
             
     except Exception as e:
-        print(f"🔍 [개발용] 친구 관계 API 오류: {e}")
+
         return jsonify({'error': '친구 관계 조회 중 오류가 발생했습니다.'}), 500
 
 # 🚀 개발용 그룹 매칭 API
@@ -8045,7 +8024,7 @@ def get_dev_random_lunch(employee_id):
             }
         # 현재 사용자 제외 (절대 포함되지 않도록)
         available_users = {k: v for k, v in virtual_users.items() if k != str(current_user)}
-        print(f"🔍 [개발용] 현재 사용자 {current_user} 제외, 사용 가능한 유저: {len(available_users)}명")
+
         
         # 원래 앱과 동일한 날짜 생성 (30일, 주말 제외)
         future_dates = []
@@ -8157,11 +8136,11 @@ def get_dev_random_lunch(employee_id):
             print(f"✅ [확인] 현재 사용자 {current_user}가 모든 그룹에서 제외되었습니다.")
         
         # 모든 그룹 반환 (무한 스크롤 지원)
-        print(f"🔍 [개발용] 랜덤런치 그룹 생성: {employee_id}에게 {len(groups)}개 그룹 제안")
+
         return jsonify(groups)
         
     except Exception as e:
-        print(f"🔍 [개발용] 그룹 매칭 API 오류: {e}")
+
         return jsonify({'error': '그룹 매칭 생성 중 오류가 발생했습니다.'}), 500
 
 def get_dev_user_data(employee_id):
