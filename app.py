@@ -7679,25 +7679,23 @@ def get_dev_random_lunch(employee_id):
         # 현재 사용자 제외
         available_users = {k: v for k, v in virtual_users.items() if k != str(current_user)}
         
-        # 3-5일 후의 날짜 생성 (주말 제외)
+        # 원래 앱과 동일한 날짜 생성 (30일, 주말 제외)
         future_dates = []
-        for i in range(3, 6):
+        for i in range(1, 31):  # 30일 동안
             future_date = datetime.now() + timedelta(days=i)
-            if future_date.weekday() < 5:  # 월~금
+            # 주말 제외 (토요일=5, 일요일=6)
+            if future_date.weekday() < 5:  # 월~금만
                 future_dates.append(future_date.strftime('%Y-%m-%d'))
-        
-        if not future_dates:
-            future_dates = [(datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')]
         
         # 여러 그룹 생성 (2-4명, 현재 사용자 제외)
         groups = []
         for date in future_dates:
-            # 각 날짜마다 충분한 그룹 생성 (무한 스크롤 지원)
-            num_groups = random.randint(8, 15)  # 충분한 그룹 생성
+            # 각 날짜마다 원래 앱과 동일한 그룹 생성
+            num_groups = random.randint(50, 100)  # 적당한 수의 그룹 생성
             
             for group_idx in range(num_groups):
-                # 그룹 크기 (2-4명, 3명이 최적)
-                group_size = random.choices([2, 3, 4], weights=[0.2, 0.6, 0.2])[0]
+                # 그룹 크기 (2-4명, 3명이 최적, 원래 앱과 동일)
+                group_size = random.choices([2, 3, 4], weights=[0.1, 0.8, 0.1])[0]  # 3명이 압도적으로 많게
                 
                 # 사용 가능한 유저에서 그룹 크기만큼 선택
                 available_user_ids = list(available_users.keys())
@@ -7708,7 +7706,7 @@ def get_dev_random_lunch(employee_id):
                     score = calculate_group_score(group_members, available_users, date)
                     
                     group_data = {
-                        'id': f'group_{date}_{group_idx}',
+                        'id': f'group_{date}_{group_idx}_{random.randint(1000, 9999)}',  # 더 현실적인 ID
                         'date': date,
                         'members': group_members,
                         'status': 'matched',
