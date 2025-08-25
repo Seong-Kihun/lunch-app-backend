@@ -1172,8 +1172,13 @@ def initialize_database():
             
             # 초기 데이터가 없으면 생성 (인증 시스템이 활성화된 경우에만)
             if AUTH_AVAILABLE:
-                if User.query.count() == 0:
+                # 강제로 초기 데이터 생성 (개발 환경)
+                print("DEBUG: 강제로 초기 데이터 생성을 시도합니다...")
+                try:
                     create_initial_data()
+                    print("DEBUG: 초기 데이터 생성 완료!")
+                except Exception as e:
+                    print(f"DEBUG: 초기 데이터 생성 실패 (이미 존재할 수 있음): {e}")
             else:
                 print("ℹ️ 인증 시스템이 비활성화되어 초기 데이터 생성을 건너뜁니다.")
             
