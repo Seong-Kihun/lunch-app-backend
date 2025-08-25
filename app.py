@@ -1216,8 +1216,31 @@ def create_initial_data():
             user.notification_settings = 'push_notification,party_reminder'
             db.session.add(user)
         
+        # 친구 관계 생성 (서로 다른 사용자들 간의 관계)
+        friend_relationships = [
+            ('1', '2'), ('1', '3'), ('1', '4'), ('1', '5'),
+            ('2', '3'), ('2', '6'), ('2', '7'),
+            ('3', '4'), ('3', '8'), ('3', '9'),
+            ('4', '5'), ('4', '10'), ('4', '11'),
+            ('5', '6'), ('5', '12'), ('5', '13'),
+            ('6', '7'), ('6', '14'), ('6', '15'),
+            ('7', '8'), ('7', '16'), ('7', '17'),
+            ('8', '9'), ('8', '18'), ('8', '19'),
+            ('9', '10'), ('9', '20'), ('9', '1'),
+            ('10', '11'), ('10', '2'), ('10', '3')
+        ]
+        
+        for user1_id, user2_id in friend_relationships:
+            friendship = Friendship(
+                user1_id=user1_id,
+                user2_id=user2_id,
+                status='accepted',
+                created_at=datetime.now()
+            )
+            db.session.add(friendship)
+        
         db.session.commit()
-        print("DEBUG: 가상 유저 20명 초기 데이터 생성 완료")
+        print("DEBUG: 가상 유저 20명과 친구 관계 초기 데이터 생성 완료")
         
         # 정확한 722개 맛집 데이터 로드 (CSV 파일에서)
         if Restaurant.query.count() == 0:
@@ -7605,65 +7628,86 @@ def get_dev_friends(employee_id):
 # 🚀 개발용 그룹 매칭 API
 @app.route('/dev/random-lunch/<employee_id>', methods=['GET'])
 def get_dev_random_lunch(employee_id):
-    """개발용 임시 그룹 매칭 API - 인증 없이 테스트 가능"""
+    """개발용 임시 그룹 매칭 API - 실제와 유사하게 구현"""
     try:
-        # 가상 그룹 매칭 데이터 생성
-        # 각 유저별로 다른 날짜에 그룹이 매칭되도록 설정
         import random
         from datetime import datetime, timedelta
         
-        today = datetime.now()
+        current_user = int(employee_id)
         
-        # 랜덤하게 3-5일 후에 그룹 매칭
-        days_ahead = random.randint(3, 5)
-        match_date = today + timedelta(days=days_ahead)
-        date_str = match_date.strftime('%Y-%m-%d')
-        
-        # 그룹 멤버 생성 (본인 + 2-3명의 친구)
-        group_members = [employee_id]
-        
-        # 친구 관계에서 랜덤하게 선택
-        friend_relationships = {
-            '1': ['2', '3', '4', '5'],
-            '2': ['1', '3', '6', '7'],
-            '3': ['1', '2', '4', '8'],
-            '4': ['1', '3', '5', '9'],
-            '5': ['1', '4', '6', '10'],
-            '6': ['2', '5', '7', '11'],
-            '7': ['2', '6', '8', '12'],
-            '8': ['3', '7', '9', '13'],
-            '9': ['4', '8', '10', '14'],
-            '10': ['5', '9', '11', '15'],
-            '11': ['6', '10', '12', '16'],
-            '12': ['7', '11', '13', '17'],
-            '13': ['8', '12', '14', '18'],
-            '14': ['9', '13', '15', '19'],
-            '15': ['10', '14', '16', '20'],
-            '16': ['11', '15', '17', '1'],
-            '17': ['12', '16', '18', '2'],
-            '18': ['13', '17', '19', '3'],
-            '19': ['14', '18', '20', '4'],
-            '20': ['15', '19', '1', '5']
+        # 가상 유저 데이터 (실제 온보딩 정보 기반)
+        virtual_users = {
+            '1': {'nickname': '김철수', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '2': {'nickname': '이영희', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '3': {'nickname': '박민수', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '4': {'nickname': '최지은', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['다양한 음식', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '5': {'nickname': '정현우', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '6': {'nickname': '한소영', 'foodPreferences': ['일식', '양식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '7': {'nickname': '윤준호', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '8': {'nickname': '송미라', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '9': {'nickname': '강동현', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '10': {'nickname': '임서연', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '11': {'nickname': '오태호', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '12': {'nickname': '신유진', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '13': {'nickname': '조성민', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '14': {'nickname': '백하은', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '15': {'nickname': '남준석', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '16': {'nickname': '류지현', 'foodPreferences': ['일식', '양식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '17': {'nickname': '차준호', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '18': {'nickname': '구미영', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+            '19': {'nickname': '홍성훈', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+            '20': {'nickname': '전소연', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'}
         }
         
-        if employee_id in friend_relationships:
-            friends = friend_relationships[employee_id]
-            # 랜덤하게 2-3명 선택
-            num_friends = random.randint(2, 3)
-            selected_friends = random.sample(friends, min(num_friends, len(friends)))
-            group_members.extend(selected_friends)
+        # 현재 사용자 제외
+        available_users = {k: v for k, v in virtual_users.items() if k != str(current_user)}
         
-        # 그룹 정보 생성
-        group_data = {
-            'id': f'group_{employee_id}_{date_str}',
-            'date': date_str,
-            'members': group_members,
-            'status': 'matched',
-            'created_at': datetime.now().isoformat()
-        }
+        # 3-5일 후의 날짜 생성 (주말 제외)
+        future_dates = []
+        for i in range(3, 6):
+            future_date = datetime.now() + timedelta(days=i)
+            if future_date.weekday() < 5:  # 월~금
+                future_dates.append(future_date.strftime('%Y-%m-%d'))
         
-        print(f"🔍 [개발용] 그룹 매칭 생성: {employee_id}의 그룹 {date_str}")
-        return jsonify(group_data)
+        if not future_dates:
+            future_dates = [(datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')]
+        
+        # 여러 그룹 생성 (2-4명, 현재 사용자 제외)
+        groups = []
+        for date in future_dates:
+            # 각 날짜마다 충분한 그룹 생성 (무한 스크롤 지원)
+            num_groups = random.randint(8, 15)  # 충분한 그룹 생성
+            
+            for group_idx in range(num_groups):
+                # 그룹 크기 (2-4명, 3명이 최적)
+                group_size = random.choices([2, 3, 4], weights=[0.2, 0.6, 0.2])[0]
+                
+                # 사용 가능한 유저에서 그룹 크기만큼 선택
+                available_user_ids = list(available_users.keys())
+                if len(available_user_ids) >= group_size:
+                    group_members = random.sample(available_user_ids, group_size)
+                    
+                    # 그룹 점수 계산 (실제 로직과 유사)
+                    score = calculate_group_score(group_members, available_users, date)
+                    
+                    group_data = {
+                        'id': f'group_{date}_{group_idx}',
+                        'date': date,
+                        'members': group_members,
+                        'status': 'matched',
+                        'created_at': datetime.now().isoformat(),
+                        'score': score,
+                        'max_members': group_size + 1,  # 현재 사용자 포함 가능
+                        'current_members': group_size
+                    }
+                    groups.append(group_data)
+        
+        # 점수 순으로 정렬
+        groups.sort(key=lambda x: x['score'], reverse=True)
+        
+        # 모든 그룹 반환 (무한 스크롤 지원)
+        print(f"🔍 [개발용] 랜덤런치 그룹 생성: {employee_id}에게 {len(groups)}개 그룹 제안")
+        return jsonify(groups)
         
     except Exception as e:
         print(f"🔍 [개발용] 그룹 매칭 API 오류: {e}")
@@ -7695,6 +7739,61 @@ def get_dev_user_data(employee_id):
     }
     
     return temp_users.get(employee_id)
+
+def calculate_group_score(members, users_data, date):
+    """그룹 매칭 점수 계산 (실제 앱 로직과 동일)"""
+    score = 0
+    
+    # 그룹 크기 점수 (2-4명만 허용, 3명이 최적)
+    group_size = len(members)
+    if group_size > 4:
+        return 0  # 4명 초과 그룹은 제외
+    
+    if group_size == 3:
+        score += 30
+    elif group_size == 4:
+        score += 25
+    elif group_size == 2:
+        score += 20
+    else:
+        score += 10
+    
+    # 사용자별 호환성 점수 계산
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            user1_id = members[i]
+            user2_id = members[j]
+            user1 = users_data[user1_id]
+            user2 = users_data[user2_id]
+            
+            # 음식 선호도 호환성
+            if user1['foodPreferences'] and user2['foodPreferences']:
+                common_prefs = set(user1['foodPreferences']) & set(user2['foodPreferences'])
+                if common_prefs:
+                    score += len(common_prefs) * 15
+            
+            # 점심 성향 호환성
+            if user1['lunchStyle'] and user2['lunchStyle']:
+                common_styles = set(user1['lunchStyle']) & set(user2['lunchStyle'])
+                if common_styles:
+                    score += len(common_styles) * 20
+            
+            # 선호 시간 호환성
+            if user1['preferredTime'] == user2['preferredTime']:
+                score += 15
+            
+            # 알러지 정보 호환성
+            if user1['allergies'] == user2['allergies']:
+                score += 10
+    
+    # 날짜별 랜덤 점수 (0-15점) - 실제 앱과 동일
+    date_seed = int(date.replace('-', ''))
+    random_score = (date_seed * 9301 + 49297) % 233280
+    random_score = (random_score / 233280) * 16
+    
+    score += int(random_score)
+    
+    return score
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
