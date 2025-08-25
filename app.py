@@ -4661,8 +4661,26 @@ def get_user(employee_id):
             return jsonify({'error': '자신의 프로필만 조회할 수 있습니다'}), 403
         
         print(f"DEBUG: Fetching user profile for employee_id: {employee_id}")
+        
+        # 먼저 실제 데이터베이스에서 사용자 조회
         user = User.query.filter_by(employee_id=employee_id).first()
-        if not user: 
+        
+        # 실제 사용자가 없으면 가상유저 데이터 반환
+        if not user:
+            if GROUP_MATCHING_AVAILABLE:
+                virtual_users = get_virtual_users_data()
+                if employee_id in virtual_users:
+                    virtual_user = virtual_users[employee_id]
+                    user_data = {
+                        'nickname': virtual_user['nickname'],
+                        'lunch_preference': ','.join(virtual_user['foodPreferences']),
+                        'gender': '기타',
+                        'age_group': '20대',
+                        'main_dish_genre': ','.join(virtual_user['foodPreferences'])
+                    }
+                    print(f"DEBUG: Virtual user data: {user_data}")
+                    return jsonify(user_data)
+            
             return jsonify({'message': '사용자를 찾을 수 없습니다.'}), 404
         
         user_data = {
@@ -4686,13 +4704,32 @@ def get_users_batch():
     if not user_ids:
         return jsonify({'message': 'user_ids가 필요합니다.'}), 400
     
+    # 실제 사용자 조회
     users = User.query.filter(User.employee_id.in_(user_ids)).all()  # type: ignore
-    return jsonify([{
-        'employee_id': user.employee_id,
-        'nickname': user.nickname,
-        'lunch_preference': user.lunch_preference,
-        'main_dish_genre': user.main_dish_genre
-    } for user in users])
+    user_data = []
+    
+    for user in users:
+        user_data.append({
+            'employee_id': user.employee_id,
+            'nickname': user.nickname,
+            'lunch_preference': user.lunch_preference,
+            'main_dish_genre': user.main_dish_genre
+        })
+    
+    # 가상유저 데이터 추가
+    if GROUP_MATCHING_AVAILABLE:
+        virtual_users = get_virtual_users_data()
+        for user_id in user_ids:
+            if user_id in virtual_users and not any(u['employee_id'] == user_id for u in user_data):
+                virtual_user = virtual_users[user_id]
+                user_data.append({
+                    'employee_id': user_id,
+                    'nickname': virtual_user['nickname'],
+                    'lunch_preference': ','.join(virtual_user['foodPreferences']),
+                    'main_dish_genre': ','.join(virtual_user['foodPreferences'])
+                })
+    
+    return jsonify(user_data)
 
 @app.route('/users/<employee_id>', methods=['PUT'])
 @require_auth
@@ -5351,6 +5388,36 @@ def search_users():
             'allergies': user.allergies,
             'preferred_time': user.preferred_time
         })
+    
+    # 가상유저도 검색 결과에 추가
+    if GROUP_MATCHING_AVAILABLE:
+        virtual_users = get_virtual_users_data()
+        for user_id, virtual_user in virtual_users.items():
+            # 자기 자신은 제외
+            if user_id == employee_id:
+                continue
+                
+            # 닉네임에 검색어가 포함되어 있는지 확인
+            if nickname.lower() in virtual_user['nickname'].lower():
+                # 친구 관계 확인
+                is_friend = False
+                if hasattr(authenticated_user, 'employee_id'):
+                    friendship = Friendship.query.filter_by(
+                        requester_id=authenticated_user.employee_id,
+                        receiver_id=user_id,
+                        status='accepted'
+                    ).first()
+                    is_friend = friendship is not None
+                
+                result.append({
+                    'employee_id': user_id,
+                    'nickname': virtual_user['nickname'],
+                    'lunch_preference': ','.join(virtual_user['foodPreferences']),
+                    'main_dish_genre': ','.join(virtual_user['foodPreferences']),
+                    'is_friend': is_friend,
+                    'allergies': virtual_user['allergies'],
+                    'preferred_time': virtual_user['preferredTime']
+                })
     
     return jsonify(result)
 
