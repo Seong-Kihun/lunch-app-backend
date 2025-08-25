@@ -7518,10 +7518,28 @@ def get_dev_user(employee_id):
 def get_dev_users_list():
     """개발용 임시 유저 목록 API"""
     try:
-        # 간단한 유저 목록 반환 (프로필 상세 정보 없음)
+        # 실제 닉네임으로 유저 목록 반환
         users_list = [
-            {'employee_id': str(i), 'nickname': f'사용자{i}'} 
-            for i in range(1, 21)
+            {'employee_id': '1', 'nickname': '김철수'},
+            {'employee_id': '2', 'nickname': '이영희'},
+            {'employee_id': '3', 'nickname': '박민수'},
+            {'employee_id': '4', 'nickname': '최지은'},
+            {'employee_id': '5', 'nickname': '정현우'},
+            {'employee_id': '6', 'nickname': '한소영'},
+            {'employee_id': '7', 'nickname': '윤준호'},
+            {'employee_id': '8', 'nickname': '송미라'},
+            {'employee_id': '9', 'nickname': '강동현'},
+            {'employee_id': '10', 'nickname': '임서연'},
+            {'employee_id': '11', 'nickname': '오태호'},
+            {'employee_id': '12', 'nickname': '신유진'},
+            {'employee_id': '13', 'nickname': '조성민'},
+            {'employee_id': '14', 'nickname': '백하은'},
+            {'employee_id': '15', 'nickname': '남준석'},
+            {'employee_id': '16', 'nickname': '류지현'},
+            {'employee_id': '17', 'nickname': '차준호'},
+            {'employee_id': '18', 'nickname': '구미영'},
+            {'employee_id': '19', 'nickname': '홍성훈'},
+            {'employee_id': '20', 'nickname': '전소연'}
         ]
         return jsonify(users_list)
     except Exception as e:
