@@ -1246,10 +1246,8 @@ def create_initial_data():
         
         for user1_id, user2_id in friend_relationships:
             friendship = Friendship(
-                user1_id=user1_id,
-                user2_id=user2_id,
-                status='accepted',
-                created_at=datetime.now()
+                requester_id=user1_id,
+                receiver_id=user2_id
             )
             db.session.add(friendship)
         
