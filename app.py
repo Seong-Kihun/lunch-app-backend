@@ -4289,13 +4289,33 @@ def get_my_proposals():
     if not employee_id:
         return jsonify({'message': 'employee_id가 필요합니다.'}), 400
     
+    print(f"🔍 [제안조회] 사용자 {employee_id}의 제안 조회 시작")
+    
     # 내가 보낸 제안들
     sent_proposals = LunchProposal.query.filter_by(proposer_id=employee_id).order_by(desc(LunchProposal.created_at)).all()
+    print(f"🔍 [제안조회] 보낸 제안: {len(sent_proposals)}개")
+    for prop in sent_proposals:
+        print(f"  - 제안 {prop.id}: {prop.proposer_id} -> {prop.recipient_ids}")
     
     # 내가 받은 제안들
     received_proposals = LunchProposal.query.filter(
         LunchProposal.recipient_ids.contains(employee_id)  # type: ignore
     ).order_by(desc(LunchProposal.created_at)).all()
+    print(f"🔍 [제안조회] 받은 제안: {len(received_proposals)}개")
+    for prop in received_proposals:
+        print(f"  - 제안 {prop.id}: {prop.proposer_id} -> {prop.recipient_ids}")
+    
+    # 중복 제안 확인 (내가 보낸 제안이 받은 제안에도 포함되는지)
+    duplicate_proposals = []
+    for sent_prop in sent_proposals:
+        for received_prop in received_proposals:
+            if sent_prop.id == received_prop.id:
+                duplicate_proposals.append(sent_prop.id)
+    
+    if duplicate_proposals:
+        print(f"⚠️ [제안조회] 중복 제안 발견: {duplicate_proposals}")
+    else:
+        print(f"✅ [제안조회] 중복 제안 없음")
     
     def format_proposal(proposal):
         # 수락한 사람들의 닉네임 리스트
@@ -7836,7 +7856,52 @@ def get_nickname_by_id(employee_id):
 def get_dev_friends(employee_id):
     """개발용 임시 친구 관계 API - 인증 없이 테스트 가능"""
     try:
-        # 가상 친구 관계 생성 (각 유저당 3-5명의 친구)
+        # 먼저 실제 데이터베이스에서 친구 관계 확인
+        try:
+            from auth.models import Friendship
+            actual_friendships = Friendship.query.filter_by(
+                requester_id=employee_id,
+                status='accepted'
+            ).all()
+            
+            if actual_friendships:
+                print(f"🔍 [개발용] 실제 친구 관계 발견: {employee_id}, {len(actual_friendships)}명")
+                # 실제 친구 관계가 있으면 그것을 사용
+                friends_data = []
+                for friendship in actual_friendships:
+                    friend_id = friendship.receiver_id
+                    # 가상 유저 데이터에서 친구 정보 가져오기
+                    if GROUP_MATCHING_AVAILABLE:
+                        virtual_users = get_virtual_users_data()
+                        friend_data = virtual_users.get(friend_id)
+                    else:
+                        # fallback: 기본 데이터
+                        friend_data = {
+                            '1': {'nickname': '김철수', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                            '2': {'nickname': '이영희', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+                            '3': {'nickname': '박민수', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                            '4': {'nickname': '최지은', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['다양한 음식', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                            '5': {'nickname': '정현우', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'}
+                        }.get(friend_id)
+                    
+                    if friend_data:
+                        friends_data.append({
+                            'employee_id': friend_id,
+                            'nickname': friend_data.get('nickname', f'사용자{friend_id}'),
+                            'department': friend_data.get('department', '부서 정보 없음'),
+                            'foodPreferences': friend_data.get('foodPreferences', []),
+                            'lunchStyle': friend_data.get('lunchStyle', []),
+                            'allergies': friend_data.get('allergies', []),
+                            'preferredTime': friend_data.get('preferredTime', '12:00')
+                        })
+                
+                print(f"✅ [개발용] 실제 친구 관계 반환: {len(friends_data)}명")
+                return jsonify(friends_data)
+                
+        except Exception as db_error:
+            print(f"⚠️ [개발용] 데이터베이스 친구 관계 조회 실패, 가상 데이터 사용: {db_error}")
+        
+        # 실제 친구 관계가 없으면 가상 친구 관계 생성 (각 유저당 3-5명의 친구)
         friend_relationships = {
             '1': ['2', '3', '4', '5'],      # 김철수의 친구들
             '2': ['1', '3', '6', '7'],      # 이영희의 친구들
