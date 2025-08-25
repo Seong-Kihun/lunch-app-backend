@@ -7535,42 +7535,37 @@ def delete_all_schedules():
 @app.route('/delete-all-randomlunch', methods=['GET'])
 def delete_all_randomlunch():
     try:
-        print("🧹 [랜덤런치] 전체 데이터 정리 시작")
+        print("🧹 [랜덤런치] 데이터 정리 시작")
         
         # 1. 모든 파티 삭제 (랜덤런치로 생성된 파티)
         deleted_parties = Party.query.filter_by(is_from_match=True).delete()
-        print(f"🧹 [랜덤런치] 삭제된 파티: {deleted_parties}개")
         
         # 2. 모든 파티 멤버 삭제
         deleted_members = PartyMember.query.delete()
-        print(f"🧹 [랜덤런치] 삭제된 파티 멤버: {deleted_members}개")
         
         # 3. 모든 제안 데이터 삭제 (Proposal 테이블이 있다면)
+        deleted_proposals = 0
         try:
             # Proposal 테이블이 존재하는지 확인
             from sqlalchemy import inspect
             inspector = inspect(db.engine)
             if 'proposal' in [table.name for table in inspector.get_tables()]:
                 deleted_proposals = db.session.execute('DELETE FROM proposal').rowcount
-                print(f"🧹 [랜덤런치] 삭제된 제안: {deleted_proposals}개")
         except Exception as e:
-            print(f"⚠️ [랜덤런치] 제안 테이블 삭제 중 오류 (무시): {e}")
+            print(f"⚠️ [랜덤런치] 제안 삭제 오류: {e}")
         
         # 4. 모든 채팅방 삭제 (랜덤런치 관련)
         deleted_chats = ChatRoom.query.filter_by(type='random_lunch').delete()
-        print(f"🧹 [랜덤런치] 삭제된 채팅방: {deleted_chats}개")
         
         # 5. 모든 채팅 참여자 삭제
         deleted_chat_participants = ChatParticipant.query.delete()
-        print(f"🧹 [랜덤런치] 삭제된 채팅 참여자: {deleted_chat_participants}개")
         
         # 6. 모든 채팅 메시지 삭제
         deleted_messages = ChatMessage.query.delete()
-        print(f"🧹 [랜덤런치] 삭제된 채팅 메시지: {deleted_messages}개")
         
         db.session.commit()
         
-        print("✅ [랜덤런치] 전체 데이터 정리 완료")
+        print(f"✅ [랜덤런치] 정리 완료: 파티{deleted_parties}개, 멤버{deleted_members}개, 제안{deleted_proposals}개, 채팅{deleted_chats}개")
         
         return jsonify({
             "message": "랜덤런치 데이터 전체 삭제 완료!",
