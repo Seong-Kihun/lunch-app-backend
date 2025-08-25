@@ -1972,7 +1972,7 @@ def get_restaurants():
     radius = request.args.get('radius', 10)  # 기본 10km
     page = request.args.get('page', 1, type=int)
     per_page = min(request.args.get('per_page', 50, type=int), 200)  # 한 번에 최대 200개까지
-    
+
     q = Restaurant.query
     
     # 카테고리 필터
@@ -4688,7 +4688,7 @@ def get_user(employee_id):
         user = User.query.filter_by(employee_id=employee_id).first()
         
         # 실제 사용자가 없으면 가상유저 데이터 반환
-        if not user:
+        if not user: 
             if GROUP_MATCHING_AVAILABLE:
                 virtual_users = get_virtual_users_data()
                 if employee_id in virtual_users:
@@ -4732,10 +4732,10 @@ def get_users_batch():
     
     for user in users:
         user_data.append({
-            'employee_id': user.employee_id,
-            'nickname': user.nickname,
-            'lunch_preference': user.lunch_preference,
-            'main_dish_genre': user.main_dish_genre
+        'employee_id': user.employee_id,
+        'nickname': user.nickname,
+        'lunch_preference': user.lunch_preference,
+        'main_dish_genre': user.main_dish_genre
         })
     
     # 가상유저 데이터 추가
@@ -5439,7 +5439,7 @@ def search_users():
                     'is_friend': is_friend,
                     'allergies': virtual_user['allergies'],
                     'preferred_time': virtual_user['preferredTime']
-                })
+        })
     
     return jsonify(result)
 
