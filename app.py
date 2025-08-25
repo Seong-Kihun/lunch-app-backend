@@ -1173,63 +1173,51 @@ def initialize_database():
             # 프로덕션에서는 로그 파일에 기록
 
 def create_initial_data():
-    """초기 데이터 생성"""
+    """초기 데이터 생성 - 가상 유저 20명 기반"""
     try:
-        # 사용자 데이터 생성
+        # 가상 유저 데이터 생성 (20명) - 온보딩 정보에 맞춤
         users_data = [
-            {'employee_id': 'KOICA001', 'nickname': '김코이카', 'main_dish_genre': '한식,분식'},
-            {'employee_id': 'KOICA002', 'nickname': '이해외', 'main_dish_genre': '한식,중식'},
-            {'employee_id': 'KOICA003', 'nickname': '박봉사', 'main_dish_genre': '일식,양식'},
-            {'employee_id': 'KOICA004', 'nickname': '최점심', 'main_dish_genre': '한식,양식'},
-            {'employee_id': 'KOICA005', 'nickname': '정식사', 'main_dish_genre': '한식,샐러드'},
-            {'employee_id': 'KOICA006', 'nickname': '한식당', 'main_dish_genre': '한식,분식'},
-            {'employee_id': 'KOICA007', 'nickname': '중국집', 'main_dish_genre': '중식,분식'},
-            {'employee_id': 'KOICA008', 'nickname': '일본인', 'main_dish_genre': '일식,한식'},
-            {'employee_id': 'KOICA009', 'nickname': '양식당', 'main_dish_genre': '양식,한식'},
-            {'employee_id': 'KOICA010', 'nickname': '분식왕', 'main_dish_genre': '분식,한식'},
-            {'employee_id': 'KOICA011', 'nickname': '카페인', 'main_dish_genre': '양식,카페'},
-            {'employee_id': 'KOICA012', 'nickname': '맛집탐험가', 'main_dish_genre': '한식,양식,일식'},
+            {'employee_id': '1', 'nickname': '김철수', 'food_preferences': '한식,중식', 'lunch_style': '맛집 탐방,새로운 메뉴 도전'},
+            {'employee_id': '2', 'nickname': '이영희', 'food_preferences': '양식,일식', 'lunch_style': '건강한 식사,분위기 좋은 곳'},
+            {'employee_id': '3', 'nickname': '박민수', 'food_preferences': '한식,분식', 'lunch_style': '가성비 좋은 곳,빠른 식사'},
+            {'employee_id': '4', 'nickname': '최지은', 'food_preferences': '양식,한식', 'lunch_style': '다양한 음식,새로운 메뉴 도전'},
+            {'employee_id': '5', 'nickname': '정현우', 'food_preferences': '한식,중식', 'lunch_style': '전통 음식,친구들과 함께'},
+            {'employee_id': '6', 'nickname': '한소영', 'food_preferences': '일식,양식', 'lunch_style': '맛집 탐방,분위기 좋은 곳'},
+            {'employee_id': '7', 'nickname': '윤준호', 'food_preferences': '한식,양식', 'lunch_style': '건강한 식사,빠른 식사'},
+            {'employee_id': '8', 'nickname': '송미라', 'food_preferences': '중식,일식', 'lunch_style': '맛있는 음식,친구들과 함께'},
+            {'employee_id': '9', 'nickname': '강동현', 'food_preferences': '한식,분식', 'lunch_style': '다양한 음식,가성비 좋은 곳'},
+            {'employee_id': '10', 'nickname': '임서연', 'food_preferences': '양식,한식', 'lunch_style': '전통 음식,분위기 좋은 곳'},
+            {'employee_id': '11', 'nickname': '오태호', 'food_preferences': '일식,중식', 'lunch_style': '맛집 탐방,새로운 메뉴 도전'},
+            {'employee_id': '12', 'nickname': '신유진', 'food_preferences': '한식,양식', 'lunch_style': '건강한 식사,혼자 조용히'},
+            {'employee_id': '13', 'nickname': '조성민', 'food_preferences': '분식,일식', 'lunch_style': '맛있는 음식,빠른 식사'},
+            {'employee_id': '14', 'nickname': '백하은', 'food_preferences': '양식,한식', 'lunch_style': '다양한 음식,친구들과 함께'},
+            {'employee_id': '15', 'nickname': '남준석', 'food_preferences': '한식,중식', 'lunch_style': '전통 음식,가성비 좋은 곳'},
+            {'employee_id': '16', 'nickname': '류지현', 'food_preferences': '일식,양식', 'lunch_style': '맛집 탐방,분위기 좋은 곳'},
+            {'employee_id': '17', 'nickname': '차준호', 'food_preferences': '한식,분식', 'lunch_style': '건강한 식사,빠른 식사'},
+            {'employee_id': '18', 'nickname': '구미영', 'food_preferences': '양식,일식', 'lunch_style': '맛있는 음식,친구들과 함께'},
+            {'employee_id': '19', 'nickname': '홍성훈', 'food_preferences': '한식,일식', 'lunch_style': '다양한 음식,새로운 메뉴 도전'},
+            {'employee_id': '20', 'nickname': '전소연', 'food_preferences': '중식,양식', 'lunch_style': '전통 음식,분위기 좋은 곳'},
         ]
         
         # User 생성
         for user_data in users_data:
             user = User(
-                email=f"{user_data['employee_id']}@koica.go.kr",  # 임시 이메일
+                email=f"user{user_data['employee_id']}@example.com",  # 가상 이메일
                 nickname=user_data['nickname'],
                 employee_id=user_data['employee_id']
             )
             # 추가 필드 설정
-            user.main_dish_genre = user_data['main_dish_genre']
-            user.lunch_preference = '새로운 맛집 탐방'
-            user.allergies = ''
+            user.food_preferences = user_data['food_preferences']
+            user.lunch_preference = user_data['lunch_style']
+            user.allergies = '없음'
             user.preferred_time = '12:00'
-            user.food_preferences = user_data['main_dish_genre']
+            user.main_dish_genre = user_data['food_preferences']
             user.frequent_areas = '강남구,서초구'
             user.notification_settings = 'push_notification,party_reminder'
             db.session.add(user)
         
-        # 사용자 선호도 데이터 생성
-        user_preferences = [
-            ('KOICA001', 'lunch_preference', '조용한 식사,빠른 식사'),
-            ('KOICA002', 'lunch_preference', '대화 선호,가성비 추구'),
-            ('KOICA003', 'lunch_preference', '새로운 맛집 탐방'),
-            ('KOICA004', 'lunch_preference', '맛집 탐방,사진 촬영'),
-            ('KOICA005', 'lunch_preference', '건강한 식사,채식 선호'),
-            ('KOICA006', 'lunch_preference', '전통 한식,가족 분위기'),
-            ('KOICA007', 'lunch_preference', '매운 음식,대량 주문'),
-            ('KOICA008', 'lunch_preference', '신선한 재료,정갈한 맛'),
-            ('KOICA009', 'lunch_preference', '분위기 좋은 곳,와인'),
-            ('KOICA010', 'lunch_preference', '빠른 식사,가성비'),
-            ('KOICA011', 'lunch_preference', '커피와 함께,브런치'),
-            ('KOICA012', 'lunch_preference', '새로운 맛집,인스타그램'),
-        ]
-        
-        for user_id, pref_type, pref_value in user_preferences:
-            preference = UserPreference(user_id, pref_type, pref_value)
-            db.session.add(preference)
-        
         db.session.commit()
-        print("DEBUG: Initial data created successfully")
+        print("DEBUG: 가상 유저 20명 초기 데이터 생성 완료")
         
         # 정확한 722개 맛집 데이터 로드 (CSV 파일에서)
         if Restaurant.query.count() == 0:
