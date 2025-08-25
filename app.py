@@ -7764,8 +7764,9 @@ def get_dev_random_lunch(employee_id):
                 '19': {'nickname': '홍성훈', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
                 '20': {'nickname': '전소연', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'}
             }
-        # 현재 사용자 제외
+        # 현재 사용자 제외 (절대 포함되지 않도록)
         available_users = {k: v for k, v in virtual_users.items() if k != str(current_user)}
+        print(f"🔍 [개발용] 현재 사용자 {current_user} 제외, 사용 가능한 유저: {len(available_users)}명")
         
         # 원래 앱과 동일한 날짜 생성 (30일, 주말 제외)
         future_dates = []
@@ -7786,82 +7787,95 @@ def get_dev_random_lunch(employee_id):
             for group_idx in range(num_groups_3):
                 group_size = 3  # 항상 3명
                 
-                # 사용 가능한 유저에서 3명 선택
+                # 사용 가능한 유저에서 3명 선택 (현재 사용자 제외)
                 available_user_ids = list(available_users.keys())
                 if len(available_user_ids) >= group_size:
                     group_members = random.sample(available_user_ids, group_size)
                     
-                    # 그룹 점수 계산 (실제 로직과 유사)
-                    score = calculate_group_score(group_members, available_users, date)
-                    
-                    group_data = {
-                        'group_id': f'group_3_{date}_{group_idx}_{random.randint(1000, 9999)}',
-                        'date': date,
-                        'users': [
-                            {
-                                'employee_id': member_id,
-                                'nickname': virtual_users[member_id]['nickname'],
-                                'foodPreferences': virtual_users[member_id]['foodPreferences'],
-                                'lunchStyle': virtual_users[member_id]['lunchStyle'],
-                                'allergies': virtual_users[member_id]['allergies'],
-                                'preferredTime': virtual_users[member_id]['preferredTime'],
-                                'age_group': None,
-                                'gender': None,
-                                'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
-                                'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
-                            }
-                            for member_id in group_members
-                        ],
-                        'status': 'matched',
-                        'created_at': datetime.now().isoformat(),
-                        'score': score,
-                        'max_members': 4,  # 현재 사용자 포함 시 4명
-                        'current_members': group_size,
-                        'group_type': '3인_그룹'
-                    }
-                    groups.append(group_data)
+                    # 현재 사용자가 포함되어 있는지 한 번 더 확인
+                    if str(current_user) not in group_members:
+                        # 그룹 점수 계산 (실제 로직과 유사)
+                        score = calculate_group_score(group_members, available_users, date)
+                        
+                        group_data = {
+                            'group_id': f'group_3_{date}_{group_idx}_{random.randint(1000, 9999)}',
+                            'date': date,
+                            'users': [
+                                {
+                                    'employee_id': member_id,
+                                    'nickname': virtual_users[member_id]['nickname'],
+                                    'foodPreferences': virtual_users[member_id]['foodPreferences'],
+                                    'lunchStyle': virtual_users[member_id]['lunchStyle'],
+                                    'allergies': virtual_users[member_id]['allergies'],
+                                    'preferredTime': virtual_users[member_id]['preferredTime'],
+                                    'age_group': None,
+                                    'gender': None,
+                                    'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
+                                    'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
+                                }
+                                for member_id in group_members
+                            ],
+                            'status': 'matched',
+                            'created_at': datetime.now().isoformat(),
+                            'score': score,
+                            'max_members': 4,  # 현재 사용자 포함 시 4명
+                            'current_members': group_size,
+                            'group_type': '3인_그룹',
+                            'can_join': True  # 현재 사용자가 참여 가능
+                        }
+                        groups.append(group_data)
             
             # 2명 그룹 보조 생성 (3명 그룹을 만들 수 없을 때 대안)
             for group_idx in range(num_groups_2):
                 group_size = 2  # 2명 그룹
                 
-                # 사용 가능한 유저에서 2명 선택
+                # 사용 가능한 유저에서 2명 선택 (현재 사용자 제외)
                 available_user_ids = list(available_users.keys())
                 if len(available_user_ids) >= group_size:
                     group_members = random.sample(available_user_ids, group_size)
                     
-                    # 그룹 점수 계산 (실제 로직과 유사)
-                    score = calculate_group_score(group_members, available_users, date)
-                    
-                    group_data = {
-                        'group_id': f'group_2_{date}_{group_idx}_{random.randint(1000, 9999)}',
-                        'date': date,
-                        'users': [
-                            {
-                                'employee_id': member_id,
-                                'nickname': virtual_users[member_id]['nickname'],
-                                'foodPreferences': virtual_users[member_id]['foodPreferences'],
-                                'lunchStyle': virtual_users[member_id]['lunchStyle'],
-                                'allergies': virtual_users[member_id]['allergies'],
-                                'preferredTime': virtual_users[member_id]['preferredTime'],
-                                'age_group': None,
-                                'gender': None,
-                                'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
-                                'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
-                            }
-                            for member_id in group_members
-                        ],
-                        'status': 'matched',
-                        'created_at': datetime.now().isoformat(),
-                        'score': score * 0.8,  # 2명 그룹은 점수 감점
-                        'max_members': 3,  # 현재 사용자 포함 시 3명
-                        'current_members': group_size,
-                        'group_type': '2인_그룹'
-                    }
-                    groups.append(group_data)
+                    # 현재 사용자가 포함되어 있는지 한 번 더 확인
+                    if str(current_user) not in group_members:
+                        # 그룹 점수 계산 (실제 로직과 유사)
+                        score = calculate_group_score(group_members, available_users, date)
+                        
+                        group_data = {
+                            'group_id': f'group_2_{date}_{group_idx}_{random.randint(1000, 9999)}',
+                            'date': date,
+                            'users': [
+                                {
+                                    'employee_id': member_id,
+                                    'nickname': virtual_users[member_id]['nickname'],
+                                    'foodPreferences': virtual_users[member_id]['foodPreferences'],
+                                    'lunchStyle': virtual_users[member_id]['lunchStyle'],
+                                    'allergies': virtual_users[member_id]['allergies'],
+                                    'preferredTime': virtual_users[member_id]['preferredTime'],
+                                    'age_group': None,
+                                    'gender': None,
+                                    'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
+                                    'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
+                                }
+                                for member_id in group_members
+                            ],
+                            'status': 'matched',
+                            'created_at': datetime.now().isoformat(),
+                            'score': score * 0.8,  # 2명 그룹은 점수 감점
+                            'max_members': 3,  # 현재 사용자 포함 시 3명
+                            'current_members': group_size,
+                            'group_type': '2인_그룹',
+                            'can_join': True  # 현재 사용자가 참여 가능
+                        }
+                        groups.append(group_data)
         
         # 점수 순으로 정렬
         groups.sort(key=lambda x: x['score'], reverse=True)
+        
+        # 현재 사용자가 포함된 그룹이 있는지 최종 확인
+        current_user_in_groups = any(str(current_user) in [user['employee_id'] for user in group['users']] for group in groups)
+        if current_user_in_groups:
+            print(f"⚠️ [경고] 현재 사용자 {current_user}가 그룹에 포함되어 있습니다!")
+        else:
+            print(f"✅ [확인] 현재 사용자 {current_user}가 모든 그룹에서 제외되었습니다.")
         
         # 모든 그룹 반환 (무한 스크롤 지원)
         print(f"🔍 [개발용] 랜덤런치 그룹 생성: {employee_id}에게 {len(groups)}개 그룹 제안")
