@@ -7695,7 +7695,19 @@ def get_dev_friends(employee_id):
             friends_data = []
             for friend_id in friends:
                 # 가상 유저 데이터에서 친구 정보 가져오기
-                friend_data = get_dev_user_data(friend_id)
+                if GROUP_MATCHING_AVAILABLE:
+                    virtual_users = get_virtual_users_data()
+                    friend_data = virtual_users.get(friend_id)
+                else:
+                    # fallback: 기본 데이터
+                    friend_data = {
+                        '1': {'nickname': '김철수', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                        '2': {'nickname': '이영희', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['건강한 음식', '다이어트'], 'allergies': ['없음'], 'preferredTime': '12:30'},
+                        '3': {'nickname': '박민수', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['빠른 식사', '가성비'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                        '4': {'nickname': '최지은', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['다양한 음식', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+                        '5': {'nickname': '정현우', 'foodPreferences': ['중식', '한식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'}
+                    }.get(friend_id)
+                
                 if friend_data:
                     friends_data.append({
                         'employee_id': friend_id,
