@@ -7775,17 +7775,18 @@ def get_dev_random_lunch(employee_id):
             if future_date.weekday() < 5:  # 월~금만
                 future_dates.append(future_date.strftime('%Y-%m-%d'))
         
-        # 여러 그룹 생성 (2-4명, 현재 사용자 제외)
+        # 여러 그룹 생성 (3명 우선, 2명은 보조)
         groups = []
         for date in future_dates:
-            # 각 날짜마다 원래 앱과 동일한 그룹 생성
-            num_groups = random.randint(50, 100)  # 적당한 수의 그룹 생성
+            # 각 날짜마다 3명 그룹을 우선적으로 생성
+            num_groups_3 = random.randint(40, 80)  # 3명 그룹 수
+            num_groups_2 = random.randint(10, 20)  # 2명 그룹 수 (보조)
             
-            for group_idx in range(num_groups):
-                # 그룹 크기 (2-4명, 3명이 최적, 원래 앱과 동일)
-                group_size = random.choices([2, 3, 4], weights=[0.1, 0.8, 0.1])[0]  # 3명이 압도적으로 많게
+            # 3명 그룹 우선 생성
+            for group_idx in range(num_groups_3):
+                group_size = 3  # 항상 3명
                 
-                # 사용 가능한 유저에서 그룹 크기만큼 선택
+                # 사용 가능한 유저에서 3명 선택
                 available_user_ids = list(available_users.keys())
                 if len(available_user_ids) >= group_size:
                     group_members = random.sample(available_user_ids, group_size)
@@ -7794,7 +7795,7 @@ def get_dev_random_lunch(employee_id):
                     score = calculate_group_score(group_members, available_users, date)
                     
                     group_data = {
-                        'group_id': f'group_{date}_{group_idx}_{random.randint(1000, 9999)}',  # 더 현실적인 ID
+                        'group_id': f'group_3_{date}_{group_idx}_{random.randint(1000, 9999)}',
                         'date': date,
                         'users': [
                             {
@@ -7814,8 +7815,48 @@ def get_dev_random_lunch(employee_id):
                         'status': 'matched',
                         'created_at': datetime.now().isoformat(),
                         'score': score,
-                        'max_members': group_size + 1,  # 현재 사용자 포함 가능
-                        'current_members': group_size
+                        'max_members': 4,  # 현재 사용자 포함 시 4명
+                        'current_members': group_size,
+                        'group_type': '3인_그룹'
+                    }
+                    groups.append(group_data)
+            
+            # 2명 그룹 보조 생성 (3명 그룹을 만들 수 없을 때 대안)
+            for group_idx in range(num_groups_2):
+                group_size = 2  # 2명 그룹
+                
+                # 사용 가능한 유저에서 2명 선택
+                available_user_ids = list(available_users.keys())
+                if len(available_user_ids) >= group_size:
+                    group_members = random.sample(available_user_ids, group_size)
+                    
+                    # 그룹 점수 계산 (실제 로직과 유사)
+                    score = calculate_group_score(group_members, available_users, date)
+                    
+                    group_data = {
+                        'group_id': f'group_2_{date}_{group_idx}_{random.randint(1000, 9999)}',
+                        'date': date,
+                        'users': [
+                            {
+                                'employee_id': member_id,
+                                'nickname': virtual_users[member_id]['nickname'],
+                                'foodPreferences': virtual_users[member_id]['foodPreferences'],
+                                'lunchStyle': virtual_users[member_id]['lunchStyle'],
+                                'allergies': virtual_users[member_id]['allergies'],
+                                'preferredTime': virtual_users[member_id]['preferredTime'],
+                                'age_group': None,
+                                'gender': None,
+                                'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
+                                'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
+                            }
+                            for member_id in group_members
+                        ],
+                        'status': 'matched',
+                        'created_at': datetime.now().isoformat(),
+                        'score': score * 0.8,  # 2명 그룹은 점수 감점
+                        'max_members': 3,  # 현재 사용자 포함 시 3명
+                        'current_members': group_size,
+                        'group_type': '2인_그룹'
                     }
                     groups.append(group_data)
         
