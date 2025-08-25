@@ -3797,24 +3797,38 @@ def join_party(party_id):
 
 @app.route('/parties/<int:party_id>/leave', methods=['POST'])
 def leave_party(party_id):
+    print(f"🔍 [파티나가기] 파티 {party_id}에서 나가기 시도")
+    
     party = Party.query.get(party_id)
     if not party:
+        print(f"❌ [파티나가기] 파티 {party_id}를 찾을 수 없음")
         return jsonify({'message': '파티를 찾을 수 없습니다.'}), 404
     
     data = request.get_json() or {}
     employee_id = data.get('employee_id')
     if not employee_id:
+        print(f"❌ [파티나가기] 사용자 ID 누락")
         return jsonify({'message': '사용자 ID가 필요합니다.'}), 400
     
-    # 파티장은 나갈 수 없음 (파티 삭제를 사용해야 함)
-    if party.host_employee_id == employee_id:
-        return jsonify({'message': '파티장은 파티를 나갈 수 없습니다. 파티 삭제를 사용해주세요.'}), 400
+    print(f"🔍 [파티나가기] 사용자 {employee_id}가 파티 {party_id}에서 나가기 시도")
+    print(f"🔍 [파티나가기] 파티 정보: 호스트={party.host_employee_id}, 랜덤런치={party.is_from_match}")
+    
+    # 랜덤런치로 생성된 파티는 호스트도 나갈 수 있음
+    if party.host_employee_id == employee_id and not party.is_from_match:
+        return jsonify({'message': '일반 파티의 파티장은 파티를 나갈 수 없습니다. 파티 삭제를 사용해주세요.'}), 400
     
     # PartyMember 테이블에서 제거
     member = PartyMember.query.filter_by(party_id=party_id, employee_id=employee_id).first()
     if member:
         db.session.delete(member)
+        
+        # 호스트가 나가는 경우, 파티 자체도 삭제 (랜덤런치 파티의 경우)
+        if party.host_employee_id == employee_id and party.is_from_match:
+            print(f"🔍 [파티나가기] 랜덤런치 파티 호스트 나가기: 파티 {party_id} 삭제")
+            db.session.delete(party)
+        
         db.session.commit()
+        print(f"✅ [파티나가기] 사용자 {employee_id}가 파티 {party_id}에서 성공적으로 나감")
         return jsonify({'message': '파티에서 나갔습니다.'})
     else:
         return jsonify({'message': '이미 파티에 참여하지 않습니다.'}), 400
@@ -5431,20 +5445,34 @@ def search_users():
     return jsonify(result)
 
 @app.route('/friends/add', methods=['POST'])
-@require_auth
 def add_friend():
-    # 인증된 사용자 정보 사용
-    authenticated_user = request.current_user
-    data = request.get_json()
-    user_id = data.get('user_id', authenticated_user.employee_id)
-    friend_id = data.get('friend_id')
-    
-    # 다른 사용자를 대신해서 친구를 추가하는 경우 권한 확인
-    if user_id != authenticated_user.employee_id:
-        return jsonify({'error': '자신의 친구만 추가할 수 있습니다'}), 403
-    
-    if not friend_id:
-        return jsonify({'message': '친구 ID가 필요합니다.'}), 400
+    # 개발 모드에서는 인증 우회
+    if app.config.get('USE_VIRTUAL_USERS', True):
+        data = request.get_json()
+        user_id = data.get('user_id')
+        friend_id = data.get('friend_id')
+        
+        if not user_id or not friend_id:
+            return jsonify({'message': '사용자 ID와 친구 ID가 필요합니다.'}), 400
+    else:
+        # 프로덕션 모드에서는 인증 필요
+        @require_auth
+        def authenticated_add_friend():
+            authenticated_user = request.current_user
+            data = request.get_json()
+            user_id = data.get('user_id', authenticated_user.employee_id)
+            friend_id = data.get('friend_id')
+            
+            # 다른 사용자를 대신해서 친구를 추가하는 경우 권한 확인
+            if user_id != authenticated_user.employee_id:
+                return jsonify({'error': '자신의 친구만 추가할 수 있습니다'}), 403
+            
+            return user_id, friend_id
+        
+        try:
+            user_id, friend_id = authenticated_add_friend()
+        except Exception as e:
+            return jsonify({'error': '인증이 필요합니다.'}), 401
     
     if user_id == friend_id:
         return jsonify({'message': '자기 자신을 친구로 추가할 수 없습니다.'}), 400
@@ -5457,14 +5485,18 @@ def add_friend():
     ).first()
     
     if existing_friendship:
+        print(f"⚠️ [친구추가] 이미 친구: {user_id}와 {friend_id}")
         return jsonify({'message': '이미 친구로 추가되어 있습니다.'}), 400
     
     # 일방적 친구 추가
+    print(f"🔍 [친구추가] 친구 관계 생성: {user_id} -> {friend_id}")
+    
     new_friendship = Friendship(requester_id=user_id, receiver_id=friend_id)
     new_friendship.status = 'accepted'  # 바로 수락된 상태로 설정
     db.session.add(new_friendship)
     db.session.commit()
     
+    print(f"✅ [친구추가] 성공: {user_id}와 {friend_id}가 친구가 되었습니다.")
     return jsonify({'message': '친구가 추가되었습니다.'}), 201
 
 @app.route('/friends/remove', methods=['POST'])
@@ -7443,6 +7475,60 @@ def delete_all_schedules():
         })
     except Exception as e:
         db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# 랜덤런치 데이터 전체 삭제 API 추가
+@app.route('/delete-all-randomlunch', methods=['GET'])
+def delete_all_randomlunch():
+    try:
+        print("🧹 [랜덤런치] 전체 데이터 정리 시작")
+        
+        # 1. 모든 파티 삭제 (랜덤런치로 생성된 파티)
+        deleted_parties = Party.query.filter_by(is_from_match=True).delete()
+        print(f"🧹 [랜덤런치] 삭제된 파티: {deleted_parties}개")
+        
+        # 2. 모든 파티 멤버 삭제
+        deleted_members = PartyMember.query.delete()
+        print(f"🧹 [랜덤런치] 삭제된 파티 멤버: {deleted_members}개")
+        
+        # 3. 모든 제안 데이터 삭제 (Proposal 테이블이 있다면)
+        try:
+            # Proposal 테이블이 존재하는지 확인
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            if 'proposal' in [table.name for table in inspector.get_tables()]:
+                deleted_proposals = db.session.execute('DELETE FROM proposal').rowcount
+                print(f"🧹 [랜덤런치] 삭제된 제안: {deleted_proposals}개")
+        except Exception as e:
+            print(f"⚠️ [랜덤런치] 제안 테이블 삭제 중 오류 (무시): {e}")
+        
+        # 4. 모든 채팅방 삭제 (랜덤런치 관련)
+        deleted_chats = ChatRoom.query.filter_by(type='random_lunch').delete()
+        print(f"🧹 [랜덤런치] 삭제된 채팅방: {deleted_chats}개")
+        
+        # 5. 모든 채팅 참여자 삭제
+        deleted_chat_participants = ChatParticipant.query.delete()
+        print(f"🧹 [랜덤런치] 삭제된 채팅 참여자: {deleted_chat_participants}개")
+        
+        # 6. 모든 채팅 메시지 삭제
+        deleted_messages = ChatMessage.query.delete()
+        print(f"🧹 [랜덤런치] 삭제된 채팅 메시지: {deleted_messages}개")
+        
+        db.session.commit()
+        
+        print("✅ [랜덤런치] 전체 데이터 정리 완료")
+        
+        return jsonify({
+            "message": "랜덤런치 데이터 전체 삭제 완료!",
+            "deleted_parties": deleted_parties,
+            "deleted_members": deleted_members,
+            "deleted_chats": deleted_chats,
+            "deleted_chat_participants": deleted_chat_participants,
+            "deleted_messages": deleted_messages
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ [랜덤런치] 데이터 정리 중 오류: {e}")
         return jsonify({"error": str(e)}), 500
 
 # 🚀 개발용 임시 유저 API (인증 없이 테스트 가능)
