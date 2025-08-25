@@ -4288,13 +4288,13 @@ def get_my_proposals():
     if not employee_id:
         return jsonify({'message': 'employee_id가 필요합니다.'}), 400
     
-        # 내가 보낸 제안들
-        sent_proposals = LunchProposal.query.filter_by(proposer_id=employee_id).order_by(desc(LunchProposal.created_at)).all()
-        
-        # 내가 받은 제안들
-        received_proposals = LunchProposal.query.filter(
-            LunchProposal.recipient_ids.contains(employee_id)  # type: ignore
-        ).order_by(desc(LunchProposal.created_at)).all()
+    # 내가 보낸 제안들
+    sent_proposals = LunchProposal.query.filter_by(proposer_id=employee_id).order_by(desc(LunchProposal.created_at)).all()
+    
+    # 내가 받은 제안들
+    received_proposals = LunchProposal.query.filter(
+        LunchProposal.recipient_ids.contains(employee_id)  # type: ignore
+    ).order_by(desc(LunchProposal.created_at)).all()
     
     def format_proposal(proposal):
         # 수락한 사람들의 닉네임 리스트
