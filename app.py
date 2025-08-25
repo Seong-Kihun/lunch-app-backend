@@ -7528,5 +7528,155 @@ def get_dev_users_list():
         print(f"🔍 [개발용] 임시 유저 목록 API 오류: {e}")
         return jsonify({'error': '임시 유저 목록 조회 중 오류가 발생했습니다.'}), 500
 
+# 🚀 개발용 친구 관계 API
+@app.route('/dev/friends/<employee_id>', methods=['GET'])
+def get_dev_friends(employee_id):
+    """개발용 임시 친구 관계 API - 인증 없이 테스트 가능"""
+    try:
+        # 가상 친구 관계 생성 (각 유저당 3-5명의 친구)
+        friend_relationships = {
+            '1': ['2', '3', '4', '5'],      # 김철수의 친구들
+            '2': ['1', '3', '6', '7'],      # 이영희의 친구들
+            '3': ['1', '2', '4', '8'],      # 박민수의 친구들
+            '4': ['1', '3', '5', '9'],      # 최지은의 친구들
+            '5': ['1', '4', '6', '10'],     # 정현우의 친구들
+            '6': ['2', '5', '7', '11'],     # 한소영의 친구들
+            '7': ['2', '6', '8', '12'],     # 윤준호의 친구들
+            '8': ['3', '7', '9', '13'],     # 송미라의 친구들
+            '9': ['4', '8', '10', '14'],    # 강동현의 친구들
+            '10': ['5', '9', '11', '15'],   # 임서연의 친구들
+            '11': ['6', '10', '12', '16'],  # 오태호의 친구들
+            '12': ['7', '11', '13', '17'],  # 신유진의 친구들
+            '13': ['8', '12', '14', '18'],  # 조성민의 친구들
+            '14': ['9', '13', '15', '19'],  # 백하은의 친구들
+            '15': ['10', '14', '16', '20'], # 남준석의 친구들
+            '16': ['11', '15', '17', '1'],  # 류지현의 친구들
+            '17': ['12', '16', '18', '2'],  # 차준호의 친구들
+            '18': ['13', '17', '19', '3'],  # 구미영의 친구들
+            '19': ['14', '18', '20', '4'],  # 홍성훈의 친구들
+            '20': ['15', '19', '1', '5']    # 전소연의 친구들
+        }
+        
+        # 요청된 employee_id의 친구 목록 반환
+        if employee_id in friend_relationships:
+            friends = friend_relationships[employee_id]
+            # 친구들의 상세 정보 생성
+            friends_data = []
+            for friend_id in friends:
+                # 가상 유저 데이터에서 친구 정보 가져오기
+                friend_data = get_dev_user_data(friend_id)
+                if friend_data:
+                    friends_data.append({
+                        'employee_id': friend_id,
+                        'nickname': friend_data['nickname'],
+                        'foodPreferences': friend_data['foodPreferences'],
+                        'lunchStyle': friend_data['lunchStyle'],
+                        'allergies': friend_data['allergies'],
+                        'preferredTime': friend_data['preferredTime']
+                    })
+            
+            print(f"🔍 [개발용] 친구 관계 반환: {employee_id}의 친구 {len(friends_data)}명")
+            return jsonify(friends_data)
+        else:
+            return jsonify([])  # 친구가 없는 경우 빈 배열
+            
+    except Exception as e:
+        print(f"🔍 [개발용] 친구 관계 API 오류: {e}")
+        return jsonify({'error': '친구 관계 조회 중 오류가 발생했습니다.'}), 500
+
+# 🚀 개발용 그룹 매칭 API
+@app.route('/dev/random-lunch/<employee_id>', methods=['GET'])
+def get_dev_random_lunch(employee_id):
+    """개발용 임시 그룹 매칭 API - 인증 없이 테스트 가능"""
+    try:
+        # 가상 그룹 매칭 데이터 생성
+        # 각 유저별로 다른 날짜에 그룹이 매칭되도록 설정
+        import random
+        from datetime import datetime, timedelta
+        
+        today = datetime.now()
+        
+        # 랜덤하게 3-5일 후에 그룹 매칭
+        days_ahead = random.randint(3, 5)
+        match_date = today + timedelta(days=days_ahead)
+        date_str = match_date.strftime('%Y-%m-%d')
+        
+        # 그룹 멤버 생성 (본인 + 2-3명의 친구)
+        group_members = [employee_id]
+        
+        # 친구 관계에서 랜덤하게 선택
+        friend_relationships = {
+            '1': ['2', '3', '4', '5'],
+            '2': ['1', '3', '6', '7'],
+            '3': ['1', '2', '4', '8'],
+            '4': ['1', '3', '5', '9'],
+            '5': ['1', '4', '6', '10'],
+            '6': ['2', '5', '7', '11'],
+            '7': ['2', '6', '8', '12'],
+            '8': ['3', '7', '9', '13'],
+            '9': ['4', '8', '10', '14'],
+            '10': ['5', '9', '11', '15'],
+            '11': ['6', '10', '12', '16'],
+            '12': ['7', '11', '13', '17'],
+            '13': ['8', '12', '14', '18'],
+            '14': ['9', '13', '15', '19'],
+            '15': ['10', '14', '16', '20'],
+            '16': ['11', '15', '17', '1'],
+            '17': ['12', '16', '18', '2'],
+            '18': ['13', '17', '19', '3'],
+            '19': ['14', '18', '20', '4'],
+            '20': ['15', '19', '1', '5']
+        }
+        
+        if employee_id in friend_relationships:
+            friends = friend_relationships[employee_id]
+            # 랜덤하게 2-3명 선택
+            num_friends = random.randint(2, 3)
+            selected_friends = random.sample(friends, min(num_friends, len(friends)))
+            group_members.extend(selected_friends)
+        
+        # 그룹 정보 생성
+        group_data = {
+            'id': f'group_{employee_id}_{date_str}',
+            'date': date_str,
+            'members': group_members,
+            'status': 'matched',
+            'created_at': datetime.now().isoformat()
+        }
+        
+        print(f"🔍 [개발용] 그룹 매칭 생성: {employee_id}의 그룹 {date_str}")
+        return jsonify(group_data)
+        
+    except Exception as e:
+        print(f"🔍 [개발용] 그룹 매칭 API 오류: {e}")
+        return jsonify({'error': '그룹 매칭 생성 중 오류가 발생했습니다.'}), 500
+
+def get_dev_user_data(employee_id):
+    """가상 유저 데이터 반환 헬퍼 함수"""
+    temp_users = {
+        '1': {'nickname': '김철수', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '2': {'nickname': '이영희', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['건강한 식사', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '11:45'},
+        '3': {'nickname': '박민수', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['가성비 좋은 곳', '빠른 식사'], 'allergies': ['없음'], 'preferredTime': '12:15'},
+        '4': {'nickname': '최지은', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['다양한 음식', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '5': {'nickname': '정현우', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['전통 음식', '친구들과 함께'], 'allergies': ['없음'], 'preferredTime': '11:30'},
+        '6': {'nickname': '한소영', 'foodPreferences': ['일식', '양식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '7': {'nickname': '윤준호', 'foodPreferences': ['한식', '양식'], 'lunchStyle': ['건강한 식사', '빠른 식사'], 'allergies': ['없음'], 'preferredTime': '12:15'},
+        '8': {'nickname': '송미라', 'foodPreferences': ['중식', '일식'], 'lunchStyle': ['맛있는 음식', '친구들과 함께'], 'allergies': ['없음'], 'preferredTime': '11:45'},
+        '9': {'nickname': '강동현', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['다양한 음식', '가성비 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '10': {'nickname': '임서연', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['전통 음식', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:15'},
+        '11': {'nickname': '오태호', 'foodPreferences': ['일식', '중식'], 'lunchStyle': ['맛집 탐방', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '12': {'nickname': '신유진', 'foodPreferences': ['한식', '양식'], 'lunchStyle': ['건강한 식사', '혼자 조용히'], 'allergies': ['없음'], 'preferredTime': '11:45'},
+        '13': {'nickname': '조성민', 'foodPreferences': ['분식', '일식'], 'lunchStyle': ['맛있는 음식', '빠른 식사'], 'allergies': ['없음'], 'preferredTime': '12:15'},
+        '14': {'nickname': '백하은', 'foodPreferences': ['양식', '한식'], 'lunchStyle': ['다양한 음식', '친구들과 함께'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '15': {'nickname': '남준석', 'foodPreferences': ['한식', '중식'], 'lunchStyle': ['전통 음식', '가성비 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '11:30'},
+        '16': {'nickname': '류지현', 'foodPreferences': ['일식', '양식'], 'lunchStyle': ['맛집 탐방', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '12:15'},
+        '17': {'nickname': '차준호', 'foodPreferences': ['한식', '분식'], 'lunchStyle': ['건강한 식사', '빠른 식사'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '18': {'nickname': '구미영', 'foodPreferences': ['양식', '일식'], 'lunchStyle': ['맛있는 음식', '친구들과 함께'], 'allergies': ['없음'], 'preferredTime': '11:45'},
+        '19': {'nickname': '홍성훈', 'foodPreferences': ['한식', '일식'], 'lunchStyle': ['다양한 음식', '새로운 메뉴 도전'], 'allergies': ['없음'], 'preferredTime': '12:00'},
+        '20': {'nickname': '전소연', 'foodPreferences': ['중식', '양식'], 'lunchStyle': ['전통 음식', '분위기 좋은 곳'], 'allergies': ['없음'], 'preferredTime': '11:30'}
+    }
+    
+    return temp_users.get(employee_id)
+
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
