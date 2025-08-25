@@ -7794,9 +7794,23 @@ def get_dev_random_lunch(employee_id):
                     score = calculate_group_score(group_members, available_users, date)
                     
                     group_data = {
-                        'id': f'group_{date}_{group_idx}_{random.randint(1000, 9999)}',  # 더 현실적인 ID
+                        'group_id': f'group_{date}_{group_idx}_{random.randint(1000, 9999)}',  # 더 현실적인 ID
                         'date': date,
-                        'members': group_members,
+                        'users': [
+                            {
+                                'employee_id': member_id,
+                                'nickname': virtual_users[member_id]['nickname'],
+                                'foodPreferences': virtual_users[member_id]['foodPreferences'],
+                                'lunchStyle': virtual_users[member_id]['lunchStyle'],
+                                'allergies': virtual_users[member_id]['allergies'],
+                                'preferredTime': virtual_users[member_id]['preferredTime'],
+                                'age_group': None,
+                                'gender': None,
+                                'lunch_preference': ', '.join(virtual_users[member_id]['lunchStyle']),
+                                'main_dish_genre': ', '.join(virtual_users[member_id]['foodPreferences'])
+                            }
+                            for member_id in group_members
+                        ],
                         'status': 'matched',
                         'created_at': datetime.now().isoformat(),
                         'score': score,
