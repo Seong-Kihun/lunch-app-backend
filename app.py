@@ -5497,23 +5497,36 @@ def add_friend():
     if user_id == friend_id:
         return jsonify({'message': '자기 자신을 친구로 추가할 수 없습니다.'}), 400
     
-    # 이미 친구인지 확인 (일방적이므로 user_id가 requester인 경우만 확인)
-    existing_friendship = Friendship.query.filter_by(
+    # 이미 친구인지 확인 (양방향 확인)
+    existing_friendship1 = Friendship.query.filter_by(
         requester_id=user_id,
         receiver_id=friend_id,
         status='accepted'
     ).first()
     
-    if existing_friendship:
+    existing_friendship2 = Friendship.query.filter_by(
+        requester_id=friend_id,
+        receiver_id=user_id,
+        status='accepted'
+    ).first()
+    
+    if existing_friendship1 or existing_friendship2:
         print(f"⚠️ [친구추가] 이미 친구: {user_id}와 {friend_id}")
         return jsonify({'message': '이미 친구로 추가되어 있습니다.'}), 400
     
-    # 일방적 친구 추가
-    print(f"🔍 [친구추가] 친구 관계 생성: {user_id} -> {friend_id}")
+    # 양방향 친구 관계 생성
+    print(f"🔍 [친구추가] 친구 관계 생성: {user_id} <-> {friend_id}")
     
-    new_friendship = Friendship(requester_id=user_id, receiver_id=friend_id)
-    new_friendship.status = 'accepted'  # 바로 수락된 상태로 설정
-    db.session.add(new_friendship)
+    # user_id -> friend_id 친구 관계
+    new_friendship1 = Friendship(requester_id=user_id, receiver_id=friend_id)
+    new_friendship1.status = 'accepted'
+    
+    # friend_id -> user_id 친구 관계 (상호 친구)
+    new_friendship2 = Friendship(requester_id=friend_id, receiver_id=user_id)
+    new_friendship2.status = 'accepted'
+    
+    db.session.add(new_friendship1)
+    db.session.add(new_friendship2)
     db.session.commit()
     
     print(f"✅ [친구추가] 성공: {user_id}와 {friend_id}가 친구가 되었습니다.")
@@ -5535,18 +5548,27 @@ def remove_friend():
     if not friend_id:
         return jsonify({'message': '친구 ID가 필요합니다.'}), 400
     
-    # 친구 관계 찾기 (일방적이므로 user_id가 requester인 경우만)
-    friendship = Friendship.query.filter_by(
+    # 양방향 친구 관계 찾기
+    friendship1 = Friendship.query.filter_by(
         requester_id=user_id,
         receiver_id=friend_id,
         status='accepted'
     ).first()
     
-    if not friendship:
+    friendship2 = Friendship.query.filter_by(
+        requester_id=friend_id,
+        receiver_id=user_id,
+        status='accepted'
+    ).first()
+    
+    if not friendship1 and not friendship2:
         return jsonify({'message': '친구 관계를 찾을 수 없습니다.'}), 404
     
-    # 친구 관계 삭제
-    db.session.delete(friendship)
+    # 양방향 친구 관계 모두 삭제
+    if friendship1:
+        db.session.delete(friendship1)
+    if friendship2:
+        db.session.delete(friendship2)
     db.session.commit()
     
     return jsonify({'message': '친구가 삭제되었습니다.'}), 200
@@ -5569,17 +5591,28 @@ def get_friends():
         
         print(f"DEBUG: Fetching friends for employee_id: {employee_id}")
         
-        # 내가 추가한 친구들만 조회 (일방적 관계)
-        friendships = Friendship.query.filter_by(
-            requester_id=employee_id,
-            status='accepted'
+        # 양방향 친구 관계 조회
+        friendships = Friendship.query.filter(
+            and_(
+                Friendship.status == 'accepted',
+                or_(
+                    Friendship.requester_id == employee_id,
+                    Friendship.receiver_id == employee_id
+                )
+            )
         ).all()
         
         friends_data = []
         today = get_seoul_today()
         
         for friendship in friendships:
-            friend = User.query.filter_by(employee_id=friendship.receiver_id).first()
+            # 친구 ID 결정 (requester_id가 현재 사용자면 receiver_id가 친구, 반대면 requester_id가 친구)
+            if friendship.requester_id == employee_id:
+                friend_id = friendship.receiver_id
+            else:
+                friend_id = friendship.requester_id
+            
+            friend = User.query.filter_by(employee_id=friend_id).first()
             
             if friend:
                 # 마지막으로 함께 점심 먹은 날 계산 (dining_history 로직 참조)
@@ -7859,9 +7892,14 @@ def get_dev_friends(employee_id):
         # 먼저 실제 데이터베이스에서 친구 관계 확인
         try:
             from auth.models import Friendship
-            actual_friendships = Friendship.query.filter_by(
-                requester_id=employee_id,
-                status='accepted'
+            actual_friendships = Friendship.query.filter(
+                and_(
+                    Friendship.status == 'accepted',
+                    or_(
+                        Friendship.requester_id == employee_id,
+                        Friendship.receiver_id == employee_id
+                    )
+                )
             ).all()
             
             if actual_friendships:
@@ -7869,7 +7907,11 @@ def get_dev_friends(employee_id):
                 # 실제 친구 관계가 있으면 그것을 사용
                 friends_data = []
                 for friendship in actual_friendships:
-                    friend_id = friendship.receiver_id
+                    # 친구 ID 결정 (requester_id가 현재 사용자면 receiver_id가 친구, 반대면 requester_id가 친구)
+                    if friendship.requester_id == employee_id:
+                        friend_id = friendship.receiver_id
+                    else:
+                        friend_id = friendship.requester_id
                     # 가상 유저 데이터에서 친구 정보 가져오기
                     if GROUP_MATCHING_AVAILABLE:
                         virtual_users = get_virtual_users_data()
