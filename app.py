@@ -7745,6 +7745,92 @@ def get_dev_users_list():
         print(f"🔍 [개발용] 임시 유저 목록 API 오류: {e}")
         return jsonify({'error': '임시 유저 목록 조회 중 오류가 발생했습니다.'}), 500
 
+# 🚀 개발용 점심 약속 히스토리 API
+@app.route('/dev/users/<employee_id>/lunch-history', methods=['GET'])
+def get_dev_lunch_history(employee_id):
+    """개발용 점심 약속 히스토리 API - 인증 없이 테스트 가능"""
+    try:
+        # 가상 점심 약속 히스토리 생성 (실제로는 데이터베이스에서 조회)
+        # 각 유저별로 최근 30일간의 점심 약속 히스토리 생성
+        from datetime import datetime, timedelta
+        
+        # 현재 날짜 기준으로 30일 전까지의 히스토리 생성
+        today = datetime.now()
+        history_data = []
+        
+        # 가상 친구 관계 (위의 친구 관계와 동일)
+        friend_relationships = {
+            '1': ['2', '3', '4', '5'],      # 김철수의 친구들
+            '2': ['1', '3', '6', '7'],      # 이영희의 친구들
+            '3': ['1', '2', '4', '8'],      # 박민수의 친구들
+            '4': ['1', '3', '5', '9'],      # 최지은의 친구들
+            '5': ['1', '4', '6', '10'],     # 정현우의 친구들
+            '6': ['2', '5', '7', '11'],     # 한소영의 친구들
+            '7': ['2', '6', '8', '12'],     # 윤준호의 친구들
+            '8': ['3', '7', '9', '13'],     # 송미라의 친구들
+            '9': ['4', '8', '10', '14'],    # 강동현의 친구들
+            '10': ['5', '9', '11', '15'],   # 임서연의 친구들
+            '11': ['6', '10', '12', '16'],  # 오태호의 친구들
+            '12': ['7', '11', '13', '17'],  # 신유진의 친구들
+            '13': ['8', '12', '14', '18'],  # 조성민의 친구들
+            '14': ['9', '13', '15', '19'],  # 백하은의 친구들
+            '15': ['10', '14', '16', '20'], # 남준석의 친구들
+            '16': ['11', '15', '17', '1'],  # 류지현의 친구들
+            '17': ['12', '16', '18', '2'],  # 차준호의 친구들
+            '18': ['13', '17', '19', '3'],  # 구미영의 친구들
+            '19': ['14', '18', '20', '4'],  # 홍성훈의 친구들
+            '20': ['15', '19', '1', '5']    # 전소연의 친구들
+        }
+        
+        if employee_id in friend_relationships:
+            friends = friend_relationships[employee_id]
+            
+            # 최근 30일간의 점심 약속 히스토리 생성
+            for i in range(30):
+                # 30일 중 랜덤하게 15-20일 정도에 점심 약속 생성
+                if random.random() < 0.6:  # 60% 확률로 점심 약속 생성
+                    meeting_date = today - timedelta(days=i)
+                    
+                    # 해당 날짜에 랜덤하게 1-3명의 친구와 점심 약속
+                    num_attendees = random.randint(1, min(3, len(friends)))
+                    selected_friends = random.sample(friends, num_attendees)
+                    
+                    # 본인도 포함하여 참석자 목록 생성
+                    attendees = [{'employee_id': employee_id, 'nickname': get_nickname_by_id(employee_id)}]
+                    for friend_id in selected_friends:
+                        attendees.append({
+                            'employee_id': friend_id,
+                            'nickname': get_nickname_by_id(friend_id)
+                        })
+                    
+                    history_data.append({
+                        'date': meeting_date.strftime('%Y-%m-%d'),
+                        'time': '12:00',
+                        'attendees': attendees,
+                        'restaurant': f'가상 식당 {random.randint(1, 10)}',
+                        'type': 'lunch'
+                    })
+        
+        print(f"🔍 [개발용] 점심 약속 히스토리 생성: {employee_id}, {len(history_data)}개")
+        return jsonify({
+            'employee_id': employee_id,
+            'lunch_history': history_data
+        })
+        
+    except Exception as e:
+        print(f"🔍 [개발용] 점심 약속 히스토리 API 오류: {e}")
+        return jsonify({'error': '점심 약속 히스토리 조회 중 오류가 발생했습니다.'}), 500
+
+def get_nickname_by_id(employee_id):
+    """employee_id로 닉네임을 반환하는 헬퍼 함수"""
+    nicknames = {
+        '1': '김철수', '2': '이영희', '3': '박민수', '4': '최지은', '5': '정현우',
+        '6': '한소영', '7': '윤준호', '8': '송미라', '9': '강동현', '10': '임서연',
+        '11': '오태호', '12': '신유진', '13': '조성민', '14': '백하은', '15': '남준석',
+        '16': '류지현', '17': '차준호', '18': '구미영', '19': '홍성훈', '20': '전소연'
+    }
+    return nicknames.get(employee_id, f'사용자{employee_id}')
+
 # 🚀 개발용 친구 관계 API
 @app.route('/dev/friends/<employee_id>', methods=['GET'])
 def get_dev_friends(employee_id):
